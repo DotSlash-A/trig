@@ -1,0 +1,12 @@
+*.sw[po]
+*.py[co]
+*~
+
+build/
+mathjax/
+
+source/img/tikz/*.png
+source/img/tikz/*.pdf
+source/img/tikz/.*.tex
+
+.DS_Store
