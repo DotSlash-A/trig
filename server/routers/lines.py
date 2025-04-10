@@ -7,7 +7,7 @@ from sympy.parsing.sympy_parser import standard_transformations, implicit_multip
 router = APIRouter()
 
 
-@router.get("/SlopeCordiantes")
+@router.post("/SlopeCordiantes")
 async def slopecordinates(slopecordinates: SlopeCordiantes):
     try:
         x1 = slopecordinates.x1
@@ -18,20 +18,7 @@ async def slopecordinates(slopecordinates: SlopeCordiantes):
         return {"slope": m}
     except Exception as e:
         return {"error": str(e)}
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
+     
     
     
     
