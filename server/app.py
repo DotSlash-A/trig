@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import sympy as sp
-
+from routers import derivatives
 app = FastAPI()
 
 class Expression(BaseModel):
@@ -46,7 +46,7 @@ async def differentiate_expression(expression: Expression):
         steps.append(f"Differentiated expression: {sp.pretty(differentiated_expr, use_unicode=True)}")
         
         # Generate LaTeX code
-        latex_code = sp.latex(differentiated_expr)
+        latex_code = sp.latex(differentiated_expr) 
         
         return {"result": str(differentiated_expr), "steps": steps, "latex": latex_code}
     except Exception as e:
@@ -85,3 +85,15 @@ async def euclids_lemma(n1,n2):
 @app.get("/")
 async def root():
     return {"message": "Welcome to the Trigonometry Calculator!"}
+
+
+class DerivativeProblem(BaseModel):
+    problem: str
+
+@app.post("/derivatives")
+async def solve_derivative(problem: DerivativeProblem):
+    try:
+        result = derivatives.calculate_derivative(problem.problem)
+        return {"result": result}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
