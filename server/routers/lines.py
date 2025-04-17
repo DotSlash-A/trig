@@ -1,13 +1,21 @@
 from fastapi import FastAPI, Query, APIRouter, HTTPException
-from models.shapes import SlopeCordiantes, SlopeInput, FindXRequest, SlopeIntercept
+from models.shapes import (
+    SlopeCordiantes,
+    SlopeInput,
+    FindXRequest,
+    SlopeIntercept,
+    coordinates,
+    LineInput,
+)
 from sympy import symbols, Eq, solve, simplify, parse_expr
 import math
 from sympy.parsing.sympy_parser import (
     standard_transformations,
     implicit_multiplication_application,
 )
-from typing import Dict, Any
+from typing import Dict, Optional
 from pydantic import BaseModel, Field
+from fractions import Fraction
 
 router = APIRouter()
 
@@ -132,33 +140,214 @@ async def find_x(find_var: str, known_values: Dict[str, float]) -> float | str:
         )
 
 
+def calculate_slope_intercept(
+    point1: Optional[coordinates], point2: Optional[coordinates], slope: Optional[float]
+) -> dict:
+    """
+    Reusable slope-intercept calculation logic
+    """
+    # Validate input parameters
+    if slope is None:
+        if not (point1 and point2):
+            raise ValueError(
+                "Both point1 and point2 are required when slope is not provided"
+            )
+
+        # Extract coordinates
+        x1 = point1.x
+        y1 = point1.y
+        x2 = point2.x
+        y2 = point2.y
+
+        # Prevent division by zero
+        if x2 - x1 == 0:
+            raise ValueError("Cannot calculate slope for vertical line (x2 - x1 = 0)")
+
+        m = (y2 - y1) / (x2 - x1)
+    else:
+        m = slope
+        if not point1:
+            raise ValueError("At least one point is required when slope is provided")
+
+    # Calculate y-intercept
+    b = point1.y - (m * point1.x)
+
+    return {
+        "slope": m,
+        "y_intercept": b,
+        "equation": f"y = {m}x + {b}" if m != 0 else f"y = {b}",
+    }
+
+
 @router.post("/slope_intercept")
 async def slope_intercept(request: SlopeIntercept):
-    """
-    Calculate the slope and y-intercept of a line given two points.
-    Args:
-        request (SlopeIntercept): The request body containing the slope and y-intercept.
+    try:
+        return calculate_slope_intercept(
+            point1=request.point1, point2=request.point2, slope=request.slope
+        )
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except AttributeError:
+        raise HTTPException(422, "Missing required coordinates")
+    except Exception as e:
+        raise HTTPException(500, f"Unexpected error: {str(e)}")
 
-    Returns:
-        dict: A dictionary containing the slope and y-intercept.
+
+@router.post("/perpendicular_slope_intercept")
+async def perpendicular_slope_intercept(y: float, request: SlopeIntercept):
+    """
+    Find the eqn of a perpendicular line joining two points and given y-intercept.
     """
     try:
-        x1 = request.point1.x
-        y1 = request.point1.y
-        x2 = request.point2.x
-        y2 = request.point2.y
-        m = request.slope
-
-        if m is None:
-            if x1 is None or y1 is None or x2 is None or y2 is None:
-                return "Error: Missing required values (x1, y1, x2, y2) to find 'm'."  # Should not happen
-            m = (y2 - y1) / (x2 - x1)
-
-        b = y1 - (m * x1)
-        # y = mx + b => b = y - mx
-
-        return {"slope": m, "y_intercept": b}
-    except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"An unexpected server error occurred: {str(e)}"
+        # Calculate the slope and y-intercept of the original line
+        original_line = calculate_slope_intercept(
+            point1=request.point1, point2=request.point2, slope=request.slope
         )
+
+        # The slope of the parallel line is the same as the original line
+        original_slope = original_line["slope"]
+        original_y_intercept = original_line["y_intercept"]
+        perp_slope = (-1) / (original_slope) if original_slope != 0 else float("inf")
+        perp_y_intercept = y
+        eqn = f"y = {perp_slope}x + {perp_y_intercept}"
+
+        return {"slope": perp_slope, "y_intercept": perp_y_intercept, "equation": eqn}
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except AttributeError:
+        raise HTTPException(422, "Missing required coordinates")
+    except Exception as e:
+        raise HTTPException(500, f"Unexpected error: {str(e)}")
+
+
+def calculate_point_slope(point: coordinates, slope: float) -> coordinates:
+    """
+    reusabale point-slope calculation logic
+    """
+    if slope is None:
+        raise ValueError("Slope is required")
+    eqn = f"y - {point.y} = {slope}(x - {point.x})"
+    return eqn
+
+
+def calculate_two_point_form(point1: coordinates, point2: coordinates) -> str:
+    """
+    reusable two-point form calculation logic
+    """
+    if point1.x == point2.x:
+        raise ValueError("Cannot calculate slope for vertical line (x2 - x1 = 0)")
+    slope = (point2.y - point1.y) / (point2.x - point1.x)
+    rounded_slope = round(slope, 2)  # round to 2 decimal places
+    eqn = f"y - {point1.y} = {rounded_slope}(x - {point1.x})"
+    return eqn
+
+
+@router.post("/two_point_form")
+async def two_point_form(request: SlopeIntercept):
+    try:
+        return calculate_two_point_form(request.point1, request.point2)
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except AttributeError:
+        raise HTTPException(422, "Missing required coordinates")
+    except Exception as e:
+        raise HTTPException(500, f"Unexpected error: {str(e)}")
+
+
+def calculate_intercept(
+    x_intercept: float, y_intercept: float, point: coordinates
+) -> str:
+    """
+    reusable intercept calculation logic
+    """
+    if x_intercept is None or y_intercept is None:
+        raise ValueError("Both x_intercept and y_intercept are required")
+
+    const = (point.x / x_intercept) + (point.y / y_intercept)
+    const = Fraction(const).limit_denominator()
+    x_int = Fraction(x_intercept).limit_denominator()
+    y_int = Fraction(y_intercept).limit_denominator()
+    eqn = f"x/{x_int} + y/{y_int} = {const}"
+    return eqn
+
+
+@router.post("/intercept")
+async def intercept(request: LineInput):
+    try:
+        return calculate_intercept(
+            request.x_intercept, request.y_intercept, request.point
+        )
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except AttributeError:
+        raise HTTPException(422, "Missing required coordinates")
+    except Exception as e:
+        raise HTTPException(500, f"Unexpected error: {str(e)}")
+
+
+def calculate_symmetric_form(
+    theta: float, point1: coordinates, point2: coordinates
+) -> str:
+    """
+    reusable symmetric form calculation logic
+    """
+    if point1 is None:
+        raise ValueError("Point is required")
+    x = point1.x
+    y = point1.y
+    x1 = point2.x
+    y1 = point2.y
+
+    r = round(
+        (x - x1) / math.cos(math.radians(theta))
+        or (y - y1) / math.sin(math.radians(theta))
+    )
+    r = Fraction(r).limit_denominator()
+
+    cos_theta = Fraction(math.cos(math.radians(theta))).limit_denominator()
+    sin_theta = Fraction(math.sin(math.radians(theta))).limit_denominator()
+
+    eqn = f"({x-x1})/cos({theta}) = ({y-y1})/sin({theta}) = {r}"
+    return eqn
+
+
+@router.post("/symmetry_form")
+async def symmetry_form(theta: float, request: SlopeIntercept):
+    try:
+        return calculate_symmetric_form(theta, request.point1, request.point2)
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except AttributeError:
+        raise HTTPException(422, "Missing required coordinates")
+    except Exception as e:
+        raise HTTPException(500, f"Unexpected error: {str(e)}")
+
+
+def calculate_normal_form(
+    alpha: float, request: LineInput = None, p: float = None
+) -> str:
+    """
+    reusable normal form calculation logic
+    """
+    if p is None:
+        p = (request.point.x * math.cos(math.radians(alpha))) + (
+            request.point.y * math.sin(math.radians(alpha))
+        )
+    p = Fraction(p).limit_denominator()
+    eqn = f"x * cos({alpha}) + y * sin({alpha}) = {p}"
+    return eqn
+
+
+@router.post("/normal_form")
+async def normal_form(request: LineInput, alpha: float, p: Optional[float] = None):
+    try:
+        return calculate_normal_form(alpha, request, p)
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except AttributeError:
+        raise HTTPException(422, "Missing required coordinates")
+    except Exception as e:
+        raise HTTPException(500, f"Unexpected error: {str(e)}")
+
+
+def calculate_transformation(

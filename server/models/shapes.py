@@ -2,6 +2,7 @@ from pydantic import BaseModel, Field
 from typing import Optional
 from typing import Dict, Any
 
+
 class lines(BaseModel):
     slope: float = Field(..., description="Slope of the line")
     y_intercept: float = Field(..., description="Y-intercept of the line")
@@ -15,7 +16,6 @@ class SlopeInput(BaseModel):
     x2: Optional[float] = None
     y2: Optional[float] = None
     m: Optional[float] = None
-
 
 
 class Original_axes(BaseModel):
@@ -47,6 +47,7 @@ class SlopeCordiantes(BaseModel):
     x2: float = Field(..., description="x-coordinate of the second point")
     y2: float = Field(..., description="y-coordinate of the second point")
 
+
 class FindXRequest(BaseModel):
     find_var: str = Field(
         ..., description="The variable to find ('x1', 'y1', 'x2', 'y2', 'm')."
@@ -60,20 +61,29 @@ class coordinates(BaseModel):
     x: float = Field(..., description="X-coordinate of the point")
     y: float = Field(..., description="Y-coordinate of the point")
 
+
 class SlopeIntercept(BaseModel):
 
-    slope: Optional[float]=Field(None, description="Slope of the line")
-    y_intercept: Optional[float] = Field(
-        None, description="Y-intercept of the line")
+    slope: Optional[float] = Field(None, description="Slope of the line")
+    y_intercept: Optional[float] = Field(None, description="Y-intercept of the line")
     x_intercept: Optional[float] = Field(
         None, description="X-intercept of the line (optional)"
     )
-    equation: Optional[str] = Field(
-        None, description="Equation of the line (optional)"
-    )
+    equation: Optional[str] = Field(None, description="Equation of the line (optional)")
     point1: Optional[coordinates] = Field(
         None, description="Point on the line (optional)"
     )
     point2: Optional[coordinates] = Field(
         None, description="Point on the line (optional)"
+    )
+
+
+class LineInput(BaseModel):
+    slope: Optional[float] = Field(None, description="Slope of the line")
+    point: Optional[coordinates] = Field(
+        None, description="Point on the line (optional)"
+    )
+    y_intercept: Optional[float] = Field(None, description="Y-intercept of the line")
+    x_intercept: Optional[float] = Field(
+        None, description="X-intercept of the line (optional)"
     )
