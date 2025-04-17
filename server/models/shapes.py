@@ -9,11 +9,6 @@ class lines(BaseModel):
     equation: str = Field(..., description="Equation of the line")
 
 
-class coordinates(BaseModel):
-    x: float = Field(..., description="X-coordinate of the point")
-    y: float = Field(..., description="Y-coordinate of the point")
-
-
 class SlopeInput(BaseModel):
     x1: Optional[float] = None
     y1: Optional[float] = None
@@ -58,4 +53,27 @@ class FindXRequest(BaseModel):
     )
     known_values: Dict[str, float] = Field(
         ..., description="Dictionary containing the known variables and their values."
+    )
+
+
+class coordinates(BaseModel):
+    x: float = Field(..., description="X-coordinate of the point")
+    y: float = Field(..., description="Y-coordinate of the point")
+
+class SlopeIntercept(BaseModel):
+
+    slope: Optional[float]=Field(None, description="Slope of the line")
+    y_intercept: Optional[float] = Field(
+        None, description="Y-intercept of the line")
+    x_intercept: Optional[float] = Field(
+        None, description="X-intercept of the line (optional)"
+    )
+    equation: Optional[str] = Field(
+        None, description="Equation of the line (optional)"
+    )
+    point1: Optional[coordinates] = Field(
+        None, description="Point on the line (optional)"
+    )
+    point2: Optional[coordinates] = Field(
+        None, description="Point on the line (optional)"
     )
