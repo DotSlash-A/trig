@@ -8,5 +8,3 @@ from sympy.parsing.sympy_parser import (
 
 
 router = APIRouter()
-
-
