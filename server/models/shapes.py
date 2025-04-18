@@ -87,3 +87,8 @@ class LineInput(BaseModel):
     x_intercept: Optional[float] = Field(
         None, description="X-intercept of the line (optional)"
     )
+
+class TransformationsLine(BaseModel):
+    A: Optional[float] = Field(None, description="X-coeff ")
+    B: Optional[float] = Field(None, description="Y-coeff ")
+    C: Optional[float] = Field(None, description="Constant term")

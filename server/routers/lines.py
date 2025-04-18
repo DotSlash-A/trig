@@ -6,6 +6,7 @@ from models.shapes import (
     SlopeIntercept,
     coordinates,
     LineInput,
+    TransformationsLine,
 )
 from sympy import symbols, Eq, solve, simplify, parse_expr
 import math
@@ -350,4 +351,77 @@ async def normal_form(request: LineInput, alpha: float, p: Optional[float] = Non
         raise HTTPException(500, f"Unexpected error: {str(e)}")
 
 
-def calculate_transformation(
+def transform_to_slopeintercept(req: TransformationsLine) -> str:
+    """
+    reusable transformation calculation logic
+
+    Args:
+    A(float): x-coefficient of the line
+    B(float): y-coefficient of the line
+    C(float): Constant term
+    """
+    if req.B == 0:
+        return "vertical line, undefined slope, cannot convert"
+    try:
+        m = Fraction(-req.A, req.B).limit_denominator()
+        b = Fraction(-req.C, req.B).limit_denominator()
+        eqn = f"y = {m}x + ({b})"  # basic representation
+
+        # format the slope term
+        if m == 0:
+            slope_term = ""
+        elif m == 1:
+            slope_term = "x"
+        elif m == -1:
+            slope_term = "-x"
+        else:
+            slope_term = f"{m}x"
+
+        # format the y-intercept as a fraction
+        if b == 0:
+            intercept_term = ""
+        else:
+            sign = "+" if b > 0 else "-"
+            abs_b = abs(b)
+            intercept_term = f"{sign}{abs_b}"
+
+        # handling the edge cases
+        if m == 0:
+            return f"y = {b}"  # this gives a horozontal line
+        elif b == 0:
+            return f"y = {slope_term}".replace(" ", "")  # y=mx
+        else:
+            return f"y = {slope_term} {intercept_term}".replace(" ", "")  # y=mx+c
+    except ZeroDivisionError:
+        return "Error: Division by zero. Check your input values."
+    except Exception as e:
+        return f"Error: {str(e)}"
+
+
+@router.post("/transform_to_slopeintercept")
+async def transform_to_slopeintercept(req: TransformationsLine):
+    try:
+        return transform_to_slopeintercept(req)
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except AttributeError:
+        raise HTTPException(422, "Missing required coordinates")
+    except Exception as e:
+        raise HTTPException(500, f"Unexpected error: {str(e)}")
+    
+def transform_to_intercept(req: TransformationsLine) -> str:
+    """
+    reusable transformation calculation logic
+
+    Args:
+    A(float): x-coefficient of the line
+    B(float): y-coefficient of the line
+    C(float): Constant term
+    """
+    A=req.A
+    B=req.B
+    C=req.C
+    x_denom=(-C/A)
+    y_denom=(-C/B)
+    eqn=f"x/{x_denom} + y/{y_denom} = 1"
+    return eqn.replace(" ", "")
