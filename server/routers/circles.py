@@ -4,6 +4,7 @@ from models.shapes import (
     CircleEqnResponse,
     CircleGeneralFormInput,
     CircleDetailsResponse,
+    circleWThreePointsInput,
 )
 import sympy
 from sympy import symbols, Eq, solve, simplify, parse_expr, expand, Poly, sqrt
@@ -15,7 +16,7 @@ from sympy.parsing.sympy_parser import (
 from typing import Dict, Optional
 from pydantic import BaseModel, Field
 from fractions import Fraction
-
+import numpy as np
 
 router = APIRouter()
 
@@ -294,4 +295,71 @@ async def circle_details_from_general_form(data: CircleGeneralFormInput):
             detail=f"An internal server error occurred: {type(e).__name__} - {e}",
         )
 
+
 # def trying_matrices():
+
+
+@router.post("/circle/3points")
+async def circle_from_three_points(data: circleWThreePointsInput):
+    """
+    Calculate the equation of a circle given three points on its circumference.
+
+    Args:
+        data (circleWThreePointsInput): Object containing three points.
+
+    Returns:
+        CircleEqnResponse: Object containing standard and general forms
+    """
+    try:
+        # Extract points from the input data
+        p = data.p
+        q = data.q
+        r = data.r
+
+        # c = data.center
+        def calc_c(x, y):
+            return -(x**2 + y**2)
+
+        # Extract coordinates from the points
+        x1, y1 = p.x, p.y
+        x2, y2 = q.x, q.y
+        x3, y3 = r.x, r.y
+        c1 = calc_c(x1, y1)
+        c2 = calc_c(x2, y2)
+        c3 = calc_c(x3, y3)
+
+        # Calculate the determinants needed for the circle equation
+        # A = x1 * (y2 - y3) - y1 * (x2 - x3) + x2 * y3 - x3 * y2
+
+        A = np.array([[x1, y1, 1], [x2, y2, 1], [x3, y3, 1]])  # Correct syntax
+        B = np.array([[c1, y1, 1], [c2, y2, 1], [c3, y3, 1]])  # Correct syntax
+        C = np.array([[x1, c1, 1], [x2, c2, 1], [x3, c3, 1]])  # Correct syntax
+        D = np.array([[x1, y1, c1], [x2, y2, c2], [x3, y3, c3]])  # Correct syntax
+
+        # Calculate the coefficients of the circle equation
+        A_det = np.linalg.det(A)  # Renamed to avoid conflict with symbol A
+        B_det = np.linalg.det(B)
+        C_det = np.linalg.det(C)
+        D_det = np.linalg.det(D)
+
+        x, y = sympy.symbols("x y")  # Define symbols x, y
+
+        # Define the equation using sympy.Eq and explicit multiplication
+        # Equation is: A_det*(x**2 + y**2) + B_det*x + C_det*y + D_det = 0
+        eqn = sympy.Eq(A_det * (x**2 + y**2) + B_det * x + C_det * y + D_det, 0)
+        # Convert the equation to a string representation
+        simplified_eq = sympy.simplify(eqn)
+        simplified_eq = (
+            str(eqn).replace("**", "^").replace("Eq(", "").replace(", 0)", "")
+        )
+        simplified_eq = simplified_eq.replace(
+            " ", ""
+        )  # Remove spaces for cleaner output
+        print(f"Circle equation: {simplified_eq}")
+        return {"standard_form": simplified_eq}
+    except Exception as e:
+        print(f"Error calculating circle equation: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"An internal server error occurred: {type(e).__name__} - {e}",
+        )

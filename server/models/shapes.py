@@ -132,3 +132,10 @@ class CircleDetailsResponse(BaseModel):
     radius: float
     input_equation: str
     normalized_equation: Optional[str] = None  # Optional: show the normalized form
+
+class circleWThreePointsInput(BaseModel):
+    p:coordinates
+    q:coordinates
+    r:coordinates
+    # center:coordinates
+
