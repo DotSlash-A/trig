@@ -293,3 +293,5 @@ async def circle_details_from_general_form(data: CircleGeneralFormInput):
             status_code=500,
             detail=f"An internal server error occurred: {type(e).__name__} - {e}",
         )
+
+# def trying_matrices():
