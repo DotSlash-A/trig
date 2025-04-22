@@ -7,7 +7,7 @@ from models.shapes import (
     circleWThreePointsInput,
 )
 import sympy
-from sympy import symbols, Eq, solve, simplify, parse_expr, expand, Poly, sqrt
+from sympy import symbols, Eq, solve, simplify, parse_expr, expand, Poly, sqrt, Matrix
 import math
 from sympy.parsing.sympy_parser import (
     standard_transformations,
@@ -359,6 +359,161 @@ async def circle_from_three_points(data: circleWThreePointsInput):
         return {"standard_form": simplified_eq}
     except Exception as e:
         print(f"Error calculating circle equation: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"An internal server error occurred: {type(e).__name__} - {e}",
+        )
+
+
+@router.post("/circle/3points/det")
+async def circle_from_three_points_det(data: circleWThreePointsInput):
+    """
+    Calculate the equation of a circle given three points on its circumference
+    uses determinants to calculate the circle equation.
+
+    """
+    try:
+        # Extract points from the input data
+        p = data.p
+        q = data.q
+        r = data.r
+
+        # c = data.center
+        # def calc_c(x, y):
+        #     return (x**2 + y**2)
+        x, y = symbols("x y")  # Define symbols x, y
+
+        # Extract coordinates from the points
+        x1, y1 = p.x, p.y
+        x2, y2 = q.x, q.y
+        x3, y3 = r.x, r.y
+        # c1 = calc_c(x1, y1)
+        # c2 = calc_c(x2, y2)
+        # c3 = calc_c(x3, y3)
+        matrix_sympy = Matrix(
+            [
+                [x**2 + y**2, x, y, 1],
+                [sympy.sympify(x1**2 + y1**2), sympy.sympify(x1), sympy.sympify(y1), 1],
+                [sympy.sympify(x2**2 + y2**2), sympy.sympify(x2), sympy.sympify(y2), 1],
+                [sympy.sympify(x3**2 + y3**2), sympy.sympify(x3), sympy.sympify(y3), 1],
+            ]
+        )
+        # Calculate the determinant of the matrix
+        det_expr = matrix_sympy.det()
+        # simplify sing sympy
+        circle_eq_expr = sympy.expand(det_expr)
+        # Convert the determinant to a string representation
+        det_str = str(circle_eq_expr).replace("**", "^").replace(" ", "")
+        det_str = det_str.replace("x**2", "x^2").replace("y**2", "y^2")
+        det_str = det_str.replace("x**1", "x").replace("y**1", "y")
+        return {"determinant": det_str}
+    except Exception as e:
+        print(f"Error calculating circle equation: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"An internal server error occurred: {type(e).__name__} - {e}",
+        )
+
+
+@router.post("/circle/3points/det1")
+async def circle_from_three_points_det(data: circleWThreePointsInput):
+    """
+    Calculate the equation of a circle given three points on its circumference
+    using the determinant method with SymPy. The determinant being zero
+    represents the circle equation.
+    """
+    try:
+        # Extract points from the input data
+        p = data.p
+        q = data.q
+        r = data.r
+
+        x, y = symbols("x y")  # Define symbols x, y
+
+        # Extract coordinates from the points
+        x1, y1 = p.x, p.y
+        x2, y2 = q.x, q.y
+        x3, y3 = r.x, r.y
+
+        # Create the matrix using sympy.Matrix
+        # Use sympify to ensure numbers are treated correctly by SymPy if needed
+        matrix_sympy = Matrix(
+            [
+                [x**2 + y**2, x, y, 1],
+                [sympy.sympify(x1**2 + y1**2), sympy.sympify(x1), sympy.sympify(y1), 1],
+                [sympy.sympify(x2**2 + y2**2), sympy.sympify(x2), sympy.sympify(y2), 1],
+                [sympy.sympify(x3**2 + y3**2), sympy.sympify(x3), sympy.sympify(y3), 1],
+            ]
+        )
+
+        # Calculate the determinant using the .det() method of the SymPy Matrix
+        det_expr = matrix_sympy.det()
+
+        # The determinant expression itself represents the circle equation (det = 0)
+        # Expand the determinant expression for a more standard polynomial form
+        circle_eq_expr = sympy.expand(det_expr)
+
+        # --- Optional: Simplify and Format ---
+        # Simplify might try to factor, expand usually gives the Ax^2+By^2+... form
+        # simplified_expr = sympy.simplify(circle_eq_expr) # Optional
+
+        # Format the expression string
+        # Helper to format coefficients nicely
+        def format_coeff(value, var_name):
+            if abs(value) < 1e-9:
+                return ""
+            sign = "-" if value < 0 else "+"
+            num = abs(value)
+            num_str = f"{num:.4g}" if abs(num - 1.0) > 1e-9 or not var_name else ""
+            var_part = f"*{var_name}" if num_str and var_name else var_name
+            return f" {sign} {num_str}{var_part}"
+
+        # Extract coefficients from the expanded expression
+        poly = Poly(circle_eq_expr, x, y)
+        coeffs_dict = poly.as_dict()
+
+        A = coeffs_dict.get((2, 0), 0)  # x^2 coeff
+        B = coeffs_dict.get((0, 2), 0)  # y^2 coeff (Should equal A)
+        C = coeffs_dict.get((1, 0), 0)  # x coeff
+        D = coeffs_dict.get((0, 1), 0)  # y coeff
+        E = coeffs_dict.get((0, 0), 0)  # constant
+
+        # Check for collinearity (A should be non-zero)
+        if abs(A) < 1e-9:
+            raise ValueError("Points are collinear, cannot form a unique circle.")
+
+        # Normalize (divide by A to get x^2 + y^2 + ...)
+        C_prime = C / A
+        D_prime = D / A
+        E_prime = E / A
+
+        # Build the string
+        general_form_str = (
+            (
+                f"x^2 + y^2"
+                f"{format_coeff(C_prime, 'x')}"
+                f"{format_coeff(D_prime, 'y')}"
+                f"{format_coeff(E_prime, '')}"
+                " = 0"
+            )
+            .replace("+ -", "- ")
+            .replace(" + ", " + ")
+            .replace(" - ", " - ")
+            .strip()
+        )
+        if general_form_str.startswith(" + "):
+            general_form_str = general_form_str[3:]
+        if general_form_str == "x^2 + y^2":
+            general_form_str += " = 0"
+
+        # Return the formatted equation string
+        return {"circle_equation": general_form_str}
+
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        print(f"Error calculating circle equation via determinant: {e}")
+        # More specific error might be helpful depending on SymPy exceptions
         raise HTTPException(
             status_code=500,
             detail=f"An internal server error occurred: {type(e).__name__} - {e}",
