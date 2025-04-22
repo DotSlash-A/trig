@@ -88,7 +88,47 @@ class LineInput(BaseModel):
         None, description="X-intercept of the line (optional)"
     )
 
+
 class TransformationsLine(BaseModel):
     A: Optional[float] = Field(None, description="X-coeff ")
     B: Optional[float] = Field(None, description="Y-coeff ")
     C: Optional[float] = Field(None, description="Constant term")
+
+
+class circleGenral(BaseModel):
+    r: Optional[float] = Field(None, description="Radius of the circle")
+    h: Optional[float] = Field(None, description="X-coordinate of the center")
+    k: Optional[float] = Field(None, description="Y-coordinate of the center")
+    x: Optional[float] = Field(None, description="X-coordinate of the point")
+    y: Optional[float] = Field(None, description="Y-coordinate of the point")
+
+
+class CircleEqnResponse(BaseModel):
+    standard_form: str = Field(..., description="Standard form of the circle equation")
+    general_form: str = Field(..., description="General form of the circle equation")
+    center_h: float = Field(..., description="X-coordinate of the center of the circle")
+    center_k: float = Field(..., description="Y-coordinate of the center of the circle")
+    radius: float = Field(..., description="Radius of the circle")
+    A: float = Field(..., description="Coefficient A in the general form")
+    B: float = Field(..., description="Coefficient B in the general form")
+    C: float = Field(..., description="Coefficient C in the general form")
+    D: float = Field(..., description="Coefficient D in the general form")
+    E: float = Field(..., description="Coefficient E in the general form")
+
+
+class CircleGeneralFormInput(BaseModel):
+    """Input model for the general form of a circle equation."""
+
+    equation: str = Field(
+        ..., description="General form equation, e.g., 'x^2 + y^2 - 4*x + 6*y - 12 = 0'"
+    )
+
+
+class CircleDetailsResponse(BaseModel):
+    """Response model containing the calculated center and radius."""
+
+    center_h: float
+    center_k: float
+    radius: float
+    input_equation: str
+    normalized_equation: Optional[str] = None  # Optional: show the normalized form

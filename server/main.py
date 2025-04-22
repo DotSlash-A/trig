@@ -4,12 +4,14 @@ from typing import Optional
 from routers import transformations
 from routers import lines
 from routers import complexnums
+from routers import circles
 
 app = FastAPI()
 
 app.include_router(transformations.router)
 app.include_router(lines.router)
 app.include_router(complexnums.router)
+app.include_router(circles.router)
 
 
 # Pydantic model for data validation

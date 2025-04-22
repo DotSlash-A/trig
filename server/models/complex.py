@@ -31,3 +31,17 @@ class ArithmeticResponse(BaseModel):
 
     result: str = Field(..., description="The result of the arithmetic operation.")
 
+class complexStringInput(BaseModel):
+    """Request body model for complex number string input."""
+
+    z: str = Field(..., description="Complex number in string format '-3 + sqrt(-7)'.")
+
+class PropertiesResponse(BaseModel):
+    """Response model for complex number properties."""
+    input_expression: str
+    real_part: float
+    imaginary_part: float
+    modulus:str
+    conjugate:str
+    standard_form:str
+
