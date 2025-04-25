@@ -139,3 +139,8 @@ class circleWThreePointsInput(BaseModel):
     r:coordinates
     # center:coordinates
 
+class linegeneral(BaseModel):
+    "takes input for ax+by+x=0"
+    a:float = Field(default=0, description="X-coefficient")
+    b:float = Field(default=0, description="Y-coefficient")
+    c:float = Field(default=0, description="Constant term")

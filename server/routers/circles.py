@@ -5,9 +5,22 @@ from models.shapes import (
     CircleGeneralFormInput,
     CircleDetailsResponse,
     circleWThreePointsInput,
+    coordinates,
+    linegeneral,
 )
 import sympy
-from sympy import symbols, Eq, solve, simplify, parse_expr, expand, Poly, sqrt, Matrix
+from sympy import (
+    symbols,
+    Eq,
+    solve,
+    simplify,
+    parse_expr,
+    expand,
+    Poly,
+    sqrt,
+    Matrix,
+    sympify,
+)
 import math
 from sympy.parsing.sympy_parser import (
     standard_transformations,
@@ -416,7 +429,7 @@ async def circle_from_three_points_det(data: circleWThreePointsInput):
 
 
 @router.post("/circle/3points/det1")
-async def circle_from_three_points_det(data: circleWThreePointsInput):
+async def circle_from_three_points_det1(data: circleWThreePointsInput):
     """
     Calculate the equation of a circle given three points on its circumference
     using the determinant method with SymPy. The determinant being zero
@@ -518,3 +531,284 @@ async def circle_from_three_points_det(data: circleWThreePointsInput):
             status_code=500,
             detail=f"An internal server error occurred: {type(e).__name__} - {e}",
         )
+
+
+def substitute_point_in_circle_eqn(circle_eqn: str, point: coordinates):
+    """
+    Substitute a point into the circle equation and check if it satisfies the equation.
+
+    Args:
+        circle_eqn (str): Circle equation in string format.
+        point (tuple): Point coordinates (x, y).
+
+    Returns:
+        bool: True if the point satisfies the equation, False otherwise.
+    """
+    x, y = symbols("x y")
+    # Parse the circle equation
+    circle_eqn = parse_expr(circle_eqn.replace("^", "**"))
+    # Substitute the point into the equation
+    substituted_eqn = circle_eqn.subs({x: point.x, y: point.y})
+    # Check if the substituted equation is equal to 0
+    return substituted_eqn
+
+
+def format_sympy_equation(eq_expr, equals_zero=True):
+    """Formats a SymPy expression into a string like 'expr = 0'."""
+    eq_str = str(eq_expr).replace("**", "^")
+    # Basic formatting for plus/minus signs
+    eq_str = eq_str.replace("+ -", "- ")
+    eq_str = eq_str.replace(" - ", " - ")
+    eq_str = eq_str.replace(" + ", " + ")
+    if eq_str.startswith(" + "):
+        eq_str = eq_str[3:]
+    if equals_zero:
+        return f"{eq_str} = 0"
+    else:
+        # Handle Eq objects if needed, though here we primarily deal with expressions
+        if eq_str.startswith("Eq("):
+            parts = eq_str[3:-1].split(", ", 1)
+            if len(parts) == 2:
+                return f"{parts[0]} = {parts[1]}"
+        return eq_str  # Fallback
+
+
+@router.post("/circle/centeronline")
+async def circle_center_online(p: coordinates, q: coordinates, line: linegeneral):
+    """
+    Finds the equation of the circle which passes through points p and q
+    and has its center on the line Ax + By + C = 0.
+
+    Args:
+        p (coordinates): First point on the circle (x1, y1).
+        q (coordinates): Second point on the circle (x2, y2).
+        line (linegeneral): Line equation coefficients A, B, C for Ax + By + C = 0.
+    Returns:
+        dict: Containing the circle equation string.
+    """
+    try:
+        # 1. Define Symbols
+        x, y, g, f, c = symbols("x y g f c")
+
+        # Use sympify to handle potential float inputs correctly in SymPy
+        x1, y1 = sympify(p.x), sympify(p.y)
+        x2, y2 = sympify(q.x), sympify(q.y)
+        A, B, C = sympify(line.a), sympify(line.b), sympify(line.c)
+
+        # 2. General Circle Equation (expression part)
+        circle_expr = x**2 + y**2 + 2 * g * x + 2 * f * y + c
+
+        # 3. Equation from Point p
+        # x1^2 + y1^2 + 2*g*x1 + 2*f*y1 + c = 0
+        eq1 = circle_expr.subs({x: x1, y: y1})
+        # eq1 = Eq(circle_expr.subs({x: x1, y: y1}), 0) # Alternative: use Eq()
+
+        # 4. Equation from Point q
+        # x2^2 + y2^2 + 2*g*x2 + 2*f*y2 + c = 0
+        eq2 = circle_expr.subs({x: x2, y: y2})
+        # eq2 = Eq(circle_expr.subs({x: x2, y: y2}), 0) # Alternative: use Eq()
+
+        # 5. Equation from Center (-g, -f) on Line Ax + By + C = 0
+        # A*(-g) + B*(-f) + C = 0
+        line_eq_expr = A * x + B * y + C
+        eq3 = line_eq_expr.subs({x: -g, y: -f})
+        # eq3 = Eq(line_eq_expr.subs({x: -g, y: -f}), 0) # Alternative: use Eq()
+
+        # 6. Solve System for g, f, c
+        # We have three linear equations (eq1=0, eq2=0, eq3=0) for g, f, c
+        solution = solve([eq1, eq2, eq3], (g, f, c))
+
+        if not solution:
+            # Check if points are identical or other degenerate cases
+            if x1 == x2 and y1 == y2:
+                raise ValueError("Points p and q cannot be the same.")
+            # Add more checks if needed (e.g., line perpendicular bisector issues)
+            raise ValueError(
+                "Could not find a unique solution. Check input points and line."
+            )
+
+        # Ensure solution is a dict if solve returns one solution
+        if isinstance(solution, list) and len(solution) == 1:
+            solution = solution[
+                0
+            ]  # Should not happen for linear system, but safe check
+        elif not isinstance(solution, dict):
+            raise ValueError(f"Unexpected solution format from SymPy: {solution}")
+
+        g_sol, f_sol, c_sol = solution[g], solution[f], solution[c]
+
+        # 7. Construct Final Equation
+        final_circle_expr = circle_expr.subs({g: g_sol, f: f_sol, c: c_sol})
+
+        # Format the final equation string
+        equation_str = format_sympy_equation(
+            final_circle_expr
+        )  # Defaults to 'expr = 0'
+        radius = sqrt(
+            (g_sol**2 + f_sol**2 - c_sol)
+        )  # Calculate radius from center coordinates and constant term
+
+        return {
+            "circle_equation": equation_str,
+            "center_g": -float(g_sol),  # Return solved values if needed
+            "center_f": -float(f_sol),
+            "constant_c": float(radius),
+        }
+
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        print(f"Error in circle_center_online: {e}")  # Log the error
+        raise HTTPException(
+            status_code=500,
+            detail=f"An internal server error occurred: {type(e).__name__} - {e}",
+        )
+
+
+def parametric_circle_eqn(h, k, r):
+    """
+    Generate the parametric equations for a circle.
+
+    Args:
+        h (float): X-coordinate of the center.
+        k (float): Y-coordinate of the center.
+        r (float): Radius of the circle.
+
+    Returns:
+        tuple: Parametric equations for x and y.
+    """
+    t = symbols("t")
+    x = h + r * sympy.cos(t)
+    y = k + r * sympy.sin(t)
+    return x, y
+
+
+def obtain_cetre_radius(circle_eqn: str):
+    x, y = symbols("x y")
+    exp = sympify(circle_eqn)
+    expr_expanded = expand(exp)
+    x_coeff = expr_expanded.coeff(x, 0)
+    y_coeff = expr_expanded.coeff(y, 0)
+    constant = expr_expanded.coeff(1, 0)
+    # Calculate center coordinates
+    h = -x_coeff / 2
+    k = -y_coeff / 2
+    # Calculate radius
+    r = sqrt(h**2 + k**2 - constant)
+    return h, k, r
+
+
+class EqnInput(BaseModel):
+    eqn: str = Field(
+        ..., description="General form equation, e.g., 'x^2 + y^2 - 4*x + 6*y - 12 = 0'"
+    )
+
+
+@router.post("/circle/parametric")
+async def circle_parametric(data: EqnInput):
+    """
+    Calculate the parametric equations of a circle given its general form equation.
+
+    Args:
+        data (parametricInput): Object containing the equation string.
+
+    Returns:
+        dict: Parametric equations for x and y.
+    """
+    try:
+        # Extract the equation from the input data
+        eqn = data.eqn
+
+        # Obtain center and radius from the general form equation
+        h, k, r = obtain_cetre_radius(eqn)
+
+        # Generate parametric equations
+        x_param, y_param = parametric_circle_eqn(h, k, r)
+
+        # Format the parametric equations as strings
+        x_param_str = format_sympy_equation(x_param, equals_zero=False)
+        y_param_str = format_sympy_equation(y_param, equals_zero=False)
+
+        return {
+            "parametric_x": x_param_str,
+            "parametric_y": y_param_str,
+            "center_h": float(h),
+            "center_k": float(k),
+            "radius": float(r),
+        }
+    except Exception as e:
+        print(f"Error calculating parametric equations: {e}")
+
+
+def diameter_circle_eqn(p: coordinates, q: coordinates):
+    """
+    calculates the eqn of circle with diameter endpoints A(x1,y1) and B(x2,y2)
+    """
+    x, y, x1, y1, x2, y2 = symbols("x y x1 y1 x2 y2")
+    x1, y1 = sympify(p.x), sympify(p.y)
+    x2, y2 = sympify(q.x), sympify(q.y)
+    formula = (x - x1) * (x - x2) + (y - y1) * (y - y2)
+    eqn = formula.subs({x1: x1, y1: y1, x2: x2, y2: y2})
+    # Expand the equation to standard form
+    expanded_eqn = expand(eqn)
+    # Convert to string and format
+    circle_eqn = str(expanded_eqn).replace("**", "^")
+    return circle_eqn
+
+
+@router.post("/circle/diameter")
+async def circle_diameter(p: coordinates, q: coordinates):
+    """
+    Calculate the equation of a circle given two points on its diameter.
+
+    Args:
+        p (coordinates): First point on the diameter (x1, y1).
+        q (coordinates): Second point on the diameter (x2, y2).
+
+    Returns:
+        dict: Circle equation string.
+    """
+    try:
+        # Calculate the circle equation using the diameter endpoints
+        circle_eqn = diameter_circle_eqn(p, q)
+        return {"circle_equation": circle_eqn}
+    except Exception as e:
+        print(f"Error calculating circle equation: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"An internal server error occurred: {type(e).__name__} - {e}",
+        )
+
+
+# @router.post("/circle/pointposition")
+# async def position_of_a_point(eqn: EqnInput, point: coordinates):
+#     """
+#     Determines the position of a point relative to a circle given its equation.
+
+#     Args:
+#         eqn (str): Circle equation in general form (e.g., 'x^2 + y^2 - 4*x + 6*y - 12 = 0').
+
+#     Returns:
+#         str: Position of the point relative to the circle ('inside', 'on', or 'outside').
+#     """
+#     try:
+#         x, y = symbols("x y")
+#         # eqn = eqn.replace(" ", "").replace("^", "**")
+#         # Extract the coefficients from the equation
+#         h, k, r = obtain_cetre_radius(eqn)
+#         center = sympy.Point(h, r)
+#         point = sympy.Point(point.x, point.y)
+#         distance_formula = center.distance(point)
+#         if distance_formula < r:
+#             return "inside"
+#         elif distance_formula == r:
+#             return "on"
+#         else:
+#             return "outside"
+
+#     except Exception as e:
+#         print(f"Error determining point position: {e}")
+#         raise HTTPException(
+#             status_code=500,
+#             detail=f"An internal server error occurred: {type(e).__name__} - {e}",
+#         )
