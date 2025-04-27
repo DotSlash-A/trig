@@ -4,6 +4,7 @@ from typing import List, Dict, Any
 import math
 import re
 import logging
+import sympy # Import sympy
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -17,12 +18,17 @@ async def testing():
     return {"message": "Hello from mylimits!"}
 
 
+# Keep original constants for potential numerical fallback
 INF = float("inf")
 NEG_INF = float("-inf")
 NAN = float("nan")
 E = math.e
 PI = math.pi
 
+# --- Shunting Yard and Numerical Evaluation (Kept for Fallback) ---
+# OPERATORS, FUNCTIONS, tokenize, is_number, get_number, evaluate_expression
+# remain the same as they are needed for the numerical fallback.
+# ... (Keep existing OPERATORS, FUNCTIONS, tokenize, is_number, get_number, evaluate_expression code here) ...
 OPERATORS = {
     "+": {"prec": 1, "assoc": "left"},
     "-": {"prec": 1, "assoc": "left"},
@@ -101,7 +107,7 @@ def tokenize(expr: str, variable: str) -> List[str]:
         else:
             processed_tokens.append(token)
 
-    logger.info(f"Tokenized expression '{expr}' into: {processed_tokens}")
+    logger.info(f"Tokenized expression '{expr}' for fallback: {processed_tokens}")
     return processed_tokens
 
 
@@ -145,25 +151,45 @@ def evaluate_expression(tokens: List[str], var_value: float, variable: str) -> f
                 elif op == "cos":
                     values.append(math.cos(val))
                 elif op == "tan":
-                    values.append(math.tan(val))
+                    # Avoid large numbers near asymptotes for numerical stability
+                    if abs(math.cos(val)) < 1e-15:
+                         values.append(NAN) # Undefined at asymptote
+                    else:
+                         values.append(math.tan(val))
                 elif op == "cot":
-                    values.append(
-                        1 / math.tan(val)
-                        if math.tan(val) != 0
-                        else INF if math.cos(val) != 0 else NAN
-                    )  # Handle cot(pi/2)=0 etc.
+                    tan_val = math.tan(val)
+                    if abs(tan_val) < 1e-15: # Check if tan is near zero
+                        values.append(NAN) # Undefined where tan is zero
+                    elif abs(math.cos(val)) < 1e-15: # Check if cos is near zero (tan undefined)
+                        values.append(0.0) # Cot is zero where tan is infinite
+                    else:
+                        values.append(1 / tan_val)
                 elif op == "sec":
-                    values.append(1 / math.cos(val) if math.cos(val) != 0 else INF)
+                    cos_val = math.cos(val)
+                    if abs(cos_val) < 1e-15:
+                        values.append(NAN) # Undefined at asymptote
+                    else:
+                        values.append(1 / cos_val)
                 elif op == "csc":
-                    values.append(1 / math.sin(val) if math.sin(val) != 0 else INF)
+                    sin_val = math.sin(val)
+                    if abs(sin_val) < 1e-15:
+                        values.append(NAN) # Undefined at asymptote
+                    else:
+                        values.append(1 / sin_val)
                 elif op == "ln":
                     values.append(math.log(val) if val > 0 else NAN)
-                elif op == "log":
-                    values.append(math.log10(val) if val > 0 else NAN)  # log base 10
+                elif op == "log": # Assume log10
+                    values.append(math.log10(val) if val > 0 else NAN)
                 elif op == "sqrt":
                     values.append(math.sqrt(val) if val >= 0 else NAN)
                 elif op == "exp":
-                    values.append(math.exp(val))
+                    # Prevent overflow in numerical evaluation
+                    try:
+                        res = math.exp(val)
+                        values.append(res if abs(res) < 1e300 else (INF if res > 0 else NEG_INF))
+                    except OverflowError:
+                        values.append(INF)
+
             else:  # Binary operators
                 b = values.pop()
                 a = values.pop()
@@ -172,7 +198,11 @@ def evaluate_expression(tokens: List[str], var_value: float, variable: str) -> f
                 elif op == "-":
                     values.append(a - b)
                 elif op == "*":
-                    values.append(a * b)
+                    # Handle 0 * inf -> NaN
+                    if (a == 0 and abs(b) == INF) or (b == 0 and abs(a) == INF):
+                        values.append(NAN)
+                    else:
+                        values.append(a * b)
                 elif op == "/":
                     if b == 0:
                         if a == 0:
@@ -181,36 +211,57 @@ def evaluate_expression(tokens: List[str], var_value: float, variable: str) -> f
                             values.append(INF)
                         else:
                             values.append(NEG_INF)
-                    elif a == INF and b == INF:
-                        values.append(NAN)  # inf/inf
-                    elif a == NEG_INF and b == NEG_INF:
-                        values.append(NAN)  # -inf/-inf etc.
+                    elif abs(a) == INF and abs(b) == INF:
+                         values.append(NAN) # inf/inf or -inf/-inf etc.
+                    elif b == INF or b == NEG_INF:
+                         values.append(0.0) # x / inf = 0
+                    elif a == INF:
+                         values.append(INF if b > 0 else NEG_INF)
+                    elif a == NEG_INF:
+                         values.append(NEG_INF if b > 0 else INF)
                     else:
                         values.append(a / b)
                 elif op == "^":
-                    # Handle 0^0 -> NaN, x^0 -> 1, 0^y (y>0) -> 0, 0^y (y<0) -> inf, 1^inf -> NaN (indeterminate)
+                    # Handle 0^0 -> NaN, x^0 -> 1, 0^y (y>0) -> 0, 0^y (y<0) -> inf, 1^inf -> NaN
                     if a == 0 and b == 0:
                         values.append(NAN)
                     elif b == 0:
                         values.append(1.0)
                     elif a == 0:
-                        values.append(0.0 if b > 0 else INF)
+                        values.append(0.0 if b > 0 else INF) # 0^neg = inf
                     elif a == 1 and abs(b) == INF:
                         values.append(NAN)  # 1^inf is indeterminate
-                    elif a == INF and b == 0:
-                        values.append(NAN)  # inf^0 indeterminate
-                    # Add more inf^inf, 0^inf etc. handling if needed
+                    elif abs(a) == INF and b == 0:
+                         values.append(NAN) # inf^0 indeterminate
+                    elif a < 0 and not float(b).is_integer():
+                         values.append(NAN) # Negative base to non-integer power
                     else:
-                        values.append(math.pow(a, b))
+                        try:
+                            # Prevent overflow/underflow
+                            res = math.pow(a, b)
+                            if abs(res) > 1e300:
+                                values.append(INF if res > 0 else NEG_INF)
+                            elif abs(res) < 1e-300 and res != 0:
+                                values.append(0.0)
+                            else:
+                                values.append(res)
+                        except (ValueError, OverflowError): # e.g., (-1)^0.5
+                            values.append(NAN)
+
 
         except IndexError:
-            raise ValueError(
-                f"Invalid expression: Not enough operands for operator '{op}'"
-            )
+            # This error is more likely in the numerical fallback if tokenization/parsing failed subtly
+            logger.error(f"Numerical Eval Error: Not enough operands for operator '{op}'. Values: {values}, Ops: {ops}")
+            # Push NaN to signal failure clearly
+            values.append(NAN)
+            # Stop further processing by clearing ops, prevents cascading errors
+            while ops: ops.pop()
+
         except Exception as e:
             # Catch potential math errors (e.g., log(-1))
-            logger.error(f"Error applying operator {op}: {e}")
-            values.append(NAN)  # Return NaN on math errors
+            logger.error(f"Numerical Eval Error applying operator {op}: {e}")
+            values.append(NAN) # Return NaN on math errors
+            while ops: ops.pop() # Stop processing
 
     for i, token in enumerate(tokens):
         token_lower = token.lower()
@@ -221,12 +272,18 @@ def evaluate_expression(tokens: List[str], var_value: float, variable: str) -> f
             values.append(const_map[token_lower])
         elif token_lower == variable.lower():
             if var_value is None:
-                raise ValueError("Variable value not provided for evaluation")
+                 # Push NaN and clear ops to signal failure
+                 logger.error("Numerical Eval Error: Variable value is None during evaluation.")
+                 values.append(NAN)
+                 while ops: ops.pop()
+                 break # Stop processing tokens
             # Handle case where variable approaches infinity directly
             if var_value == INF:
                 values.append(INF)
             elif var_value == NEG_INF:
                 values.append(NEG_INF)
+            elif math.isnan(var_value): # If NaN is passed in somehow
+                values.append(NAN)
             else:
                 values.append(var_value)
         elif token_lower in FUNCTIONS:
@@ -236,17 +293,27 @@ def evaluate_expression(tokens: List[str], var_value: float, variable: str) -> f
         elif token == ")":
             while ops and ops[-1] != "(":
                 apply_op()
-            if not ops or ops[-1] != "(":
-                raise ValueError("Mismatched parentheses")
+                # If apply_op resulted in NaN and cleared ops, break
+                if not ops and values and math.isnan(values[-1]): break
+            if not ops: # Error occurred in apply_op or mismatched parens
+                 if not values or not math.isnan(values[-1]): # Avoid adding step if already handled
+                      logger.error("Numerical Eval Error: Mismatched parentheses or error during application.")
+                      values.append(NAN) # Ensure NaN is the result
+                 break # Stop processing
             ops.pop()  # Pop '('
             # If the token before '(' was a function name, apply it
             if ops and ops[-1] in FUNCTIONS:
                 apply_op()
+                # If apply_op resulted in NaN and cleared ops, break
+                if not ops and values and math.isnan(values[-1]): break
         elif token in OPERATORS or token == "unary_minus":
-            info = OPERATORS[token]
+            # Check for unary minus explicitly
+            current_op = "unary_minus" if token == "unary_minus" else token
+            info = OPERATORS[current_op]
             while (
                 ops
                 and ops[-1] != "("
+                and ops[-1] in OPERATORS # Ensure previous op is in OPERATORS dict
                 and (
                     OPERATORS[ops[-1]]["prec"] > info["prec"]
                     or (
@@ -256,29 +323,47 @@ def evaluate_expression(tokens: List[str], var_value: float, variable: str) -> f
                 )
             ):
                 apply_op()
-            ops.append(token)
+                 # If apply_op resulted in NaN and cleared ops, break
+                if not ops and values and math.isnan(values[-1]): break
+            # Break the outer loop as well if an error occurred
+            if values and math.isnan(values[-1]) and not ops: break
+            ops.append(current_op)
         else:
-            raise ValueError(f"Unknown token: {token}")
+            logger.error(f"Numerical Eval Error: Unknown token '{token}'")
+            values = [NAN] # Set result to NaN
+            ops = [] # Clear ops
+            break # Stop processing
 
+    # After loop, apply remaining ops
     while ops:
         if ops[-1] == "(":
-            raise ValueError("Mismatched parentheses")
+             logger.error("Numerical Eval Error: Mismatched parentheses at end.")
+             values = [NAN] # Set result to NaN
+             ops = [] # Clear ops
+             break
         apply_op()
+        # Check if error occurred during final applications
+        if values and math.isnan(values[-1]) and not ops: break
 
-    if len(values) != 1:
-        # Check for implicit multiplication cases missed, or other errors
-        logger.warning(
-            f"Evaluation ended with multiple values: {values}. Ops: {ops}. Tokens: {tokens}"
-        )
-        raise ValueError("Invalid expression: Evaluation resulted in multiple values")
+
+    # Final result check
+    if len(values) != 1 or math.isnan(values[0]):
+        # Log if it wasn't an expected NaN from an error state
+        if not (values and math.isnan(values[0])):
+             logger.warning(
+                 f"Numerical evaluation ended with values: {values}. Ops: {ops}. Tokens: {tokens}. Returning NaN."
+             )
+        return NAN # Return NaN if evaluation failed or ended with non-single value
 
     result = values[0]
-    # Clamp extremely large/small values resulting from float precision issues near inf
-    if abs(result) > 1e300:
-        return INF if result > 0 else NEG_INF
-    # Handle very small numbers that should likely be zero
-    if abs(result) < 1e-12:
-        return 0.0
+
+    # Clamp large/small values ONLY if they are not INF/NEG_INF already
+    if result != INF and result != NEG_INF:
+        if abs(result) > 1e200: # Reduced threshold slightly
+            return INF if result > 0 else NEG_INF
+        # Handle very small numbers that should likely be zero
+        if abs(result) < 1e-12:
+            return 0.0
 
     return result
 
@@ -286,16 +371,93 @@ def evaluate_expression(tokens: List[str], var_value: float, variable: str) -> f
 class LimitCalculator:
     def __init__(self, expression: str, variable: str, tending_to_str: str):
         self.original_expression = expression
-        self.variable = variable
+        self.variable_str = variable
         self.tending_to_str = tending_to_str
         self.steps = []
         self.result = "Could not determine limit"
-        self.tokens = []
-        self.epsilon = 1e-7
-        self.large_number = 1e10
-        self.limit_point = self._parse_limit_point(tending_to_str)
+        self.epsilon = 1e-7 # For numerical checks
+        self.large_number = 1e10 # For simulating infinity numerically
 
-    def _parse_limit_point(self, limit_point_str: str) -> float:
+        # --- Sympy Initialization ---
+        self.sympy_var = sympy.symbols(variable)
+        self.sympy_expr = None
+        self.sympy_limit_point = None
+        self.sympy_limit_point_val = None # Store numerical value if finite
+
+        try:
+            # Define common functions for sympify
+            local_dict = {
+                "sin": sympy.sin,
+                "cos": sympy.cos,
+                "tan": sympy.tan,
+                "cot": sympy.cot,
+                "sec": sympy.sec,
+                "csc": sympy.csc,
+                "ln": sympy.log, # Sympy uses log for natural log
+                "log": lambda x: sympy.log(x, 10), # Define log10 explicitly
+                "sqrt": sympy.sqrt,
+                "exp": sympy.exp,
+                "pi": sympy.pi,
+                "e": sympy.E,
+                # Add other functions or constants if needed
+            }
+            # Use sympify to parse the expression safely
+            # Replace ^ with ** for sympy compatibility if necessary
+            parsed_expression = expression.replace('^', '**')
+            self.sympy_expr = sympy.sympify(parsed_expression, locals=local_dict)
+
+            # Parse the limit point for sympy
+            t_str = tending_to_str.lower().strip()
+            if t_str in ["inf", "infinity", "oo", "∞"]:
+                self.sympy_limit_point = sympy.oo
+                self.sympy_limit_point_val = INF # For numerical checks
+            elif t_str in ["-inf", "-infinity", "-oo", "-∞"]:
+                self.sympy_limit_point = -sympy.oo
+                self.sympy_limit_point_val = NEG_INF # For numerical checks
+            else:
+                # Allow expressions like pi/2
+                parsed_limit_point = t_str.replace('^', '**')
+                self.sympy_limit_point = sympy.sympify(parsed_limit_point, locals={"pi": sympy.pi, "e": sympy.E})
+                # Attempt to get a numerical value for checks
+                try:
+                    self.sympy_limit_point_val = float(self.sympy_limit_point.evalf())
+                except TypeError:
+                     # Limit point might be symbolic like 'a' if not careful, handle gracefully
+                     logger.warning(f"Could not evaluate limit point {self.sympy_limit_point} numerically.")
+                     self.sympy_limit_point_val = None # Cannot perform numerical checks easily
+
+        except (sympy.SympifyError, SyntaxError, TypeError) as e:
+            logger.error(f"Sympy parsing error: {e}")
+            raise ValueError(f"Could not parse expression or limit point: {e}")
+        except Exception as e:
+            logger.error(f"Unexpected error during sympy initialization: {e}")
+            raise ValueError(f"An unexpected error occurred during setup: {e}")
+
+        # --- Numerical Fallback Initialization ---
+        self.fallback_tokens = []
+        self.numerical_limit_point = None # Use sympy_limit_point_val if available
+        try:
+            # Tokenize for fallback evaluation if needed later
+            self.fallback_tokens = tokenize(self.original_expression, self.variable_str) # Use original expression for fallback tokenizer
+            # Use the already parsed numerical value if available
+            if self.sympy_limit_point_val is not None:
+                 self.numerical_limit_point = self.sympy_limit_point_val
+            else:
+                 # Try parsing again specifically for numerical if sympy eval failed
+                 self.numerical_limit_point = self._parse_limit_point_numerical(tending_to_str)
+
+        except ValueError as e:
+             # If tokenization or numerical limit parsing fails, we can't use fallback
+             logger.warning(f"Could not initialize numerical fallback: {e}")
+             self.fallback_tokens = None
+             self.numerical_limit_point = None
+        except Exception as e:
+             logger.warning(f"Unexpected error initializing numerical fallback: {e}")
+             self.fallback_tokens = None
+             self.numerical_limit_point = None
+
+    def _parse_limit_point_numerical(self, limit_point_str: str) -> float:
+        """Parses limit point for numerical evaluation."""
         t_str = limit_point_str.lower().strip()
         if t_str in ["inf", "infinity", "∞"]:
             return INF
@@ -303,936 +465,377 @@ class LimitCalculator:
             return NEG_INF
         else:
             try:
-                return float(t_str)
-            except ValueError:
-                raise ValueError(f"Invalid limit point: {limit_point_str}")
+                # Evaluate simple expressions like pi/2 for numerical value
+                # Be careful with eval, use restricted scope
+                val = eval(t_str, {"__builtins__": None}, {"pi": PI, "e": E, "sqrt": math.sqrt})
+                if not isinstance(val, (int, float)):
+                     raise ValueError("Invalid numerical limit point expression")
+                return float(val)
+            except Exception as e:
+                logger.error(f"Failed to parse numerical limit point '{limit_point_str}': {e}")
+                raise ValueError(f"Invalid numerical limit point: {limit_point_str}")
 
     def _add_step(self, step: str, explanation: str):
         self.steps.append({"step": step, "explanation": explanation})
         logger.info(f"Step added: {step} - {explanation}")
 
-    def _safe_evaluate(self, expr_tokens: list, value: float) -> float:
-        """Evaluate expression, returningn NAN on error"""
-        try:
-            if value == INF or value == NEG_INF:
-                simulated_value = (
-                    self.large_number if value == INF else -self.large_number
-                )
-                logger.warning(
-                    f"Evaluating at infinity, using {simulated_value} instead"
-                )
-                eval_result = evaluate_expression(
-                    expr_tokens, simulated_value, self.variable
-                )
-            else:
-                eval_result = evaluate_expression(expr_tokens, value, self.variable)
+    def _format_sympy_result(self, sympy_res) -> str:
+        """Formats sympy result, including fractions."""
+        if sympy_res is sympy.oo:
+            return "∞"
+        elif sympy_res is -sympy.oo:
+            return "-∞"
+        elif sympy_res is sympy.zoo: # Complex infinity
+            return "Complex Infinity (zoo)"
+        elif sympy_res is sympy.nan:
+            return "NaN (Indeterminate)"
+        elif isinstance(sympy_res, sympy.Limit):
+            return f"Unevaluated Limit: {sympy.pretty(sympy_res)}"
+        elif isinstance(sympy_res, sympy.AccumBounds):
+             # Handle cases like sin(oo) which results in AccumBounds(-1, 1)
+             return f"Bounded Value ({sympy_res.min}, {sympy_res.max})"
+        elif isinstance(sympy_res, sympy.Rational):
+            # Format as fraction
+            return f"{sympy_res.p}/{sympy_res.q}"
+        elif isinstance(sympy_res, (sympy.Float, sympy.Integer, float, int)):
+             # Attempt to convert floats to fractions if they are close to simple ones
+             try:
+                 # Convert to Rational if possible, limit denominator for cleaner output
+                 rational_approx = sympy.Rational(sympy_res).limit_denominator(1000)
+                 if rational_approx.q == 1:
+                     return str(rational_approx.p) # Integer
+                 else:
+                     return f"{rational_approx.p}/{rational_approx.q}" # Fraction
+             except (TypeError, ValueError):
+                 # Fallback to string representation if conversion fails
+                 return str(sympy_res)
+        elif sympy_res is sympy.pi:
+            return "pi"
+        elif sympy_res is sympy.E:
+            return "e"
+        else:
+            # General sympy expression, convert to string using pretty print
+            try:
+                return sympy.pretty(sympy_res)
+            except Exception:
+                 return str(sympy_res) # Fallback if pretty printing fails
 
-            if isinstance(eval_result, float) and math.isnan(eval_result):
-                return NAN
-            return eval_result
-        except (ValueError, ZeroDivisionError, OverflowError, TypeError) as e:
-            logger.error(f"Error evaluating expression at value {value}: {e}")
-            if isinstance(e, ZeroDivisionError):
-                try:
-                    val_plus = evaluate_expression(
-                        expr_tokens,
-                        value + self.epsilon * (1 if value > 0 else -1),
-                        self.variable,
-                    )
-                    val_minus = evaluate_expression(
-                        expr_tokens,
-                        value - self.epsilon * (1 if value > 0 else -1),
-                        self.variable,
-                    )
-                    if val_plus > 1e10 and val_minus > 1e10:
-                        return INF
-                    elif val_plus < -1e10 and val_minus < -1e10:
-                        return NEG_INF
-                except:
-                    pass
+
+    def _safe_numerical_evaluate(self, value: float) -> float:
+        """Evaluate expression numerically using fallback tokens, returning NAN on error"""
+        if self.fallback_tokens is None:
+            logger.warning("Numerical fallback not available (initialization failed).")
             return NAN
 
-    # def _check_standard_limits(self, expr_str:str, limit_point:float)->tuple[float |None, str|None]:
-    #     """check for common standard limits"""
-    #     expr_simple=expr_str.replace(" ", "").lower()
-    #     var=self.variable.lower()
-    #     #limits as vas->0
-    #     if abs(limit_point)<self.epsilon:
-    #         if expr_simple==f"sin({var})/{var}" or expr_simple==f"{var}/sin({var})":
-    #             return 1.0, "Standard limit: sin(x)/x as x->0 = 1"
-    #         if expr_simple==f"(1-cos({var}))/{var}":
-    #             return 0.0, "Standard limit: (1-cos(x))/x as x->0 = 0"
-    #         if expr_simple==f"(1-cos({var}))/{var}**2":
-    #             return 0.5, "Standard limit: (1-cos(x))/x^2 as x->0 = 1/2"
-    #         if expr_simple==f"tan({var})/{var}" or expr_simple==f"{var}/tan({var})":
-    #             return 1.0, "Standard limit: tan(x)/x as x->0 = 1"
-    #         if (
-    #             expr_simple == f"(e^{var}-1)/{var}"
-    #             or expr_simple == f"({var})/(e^{var}-1)"
-    #         ):
-    #             return 1.0, "Standard limit: (e^x-1)/x as x->0 = 1"
-    #         if expr_simple == f"ln(1+{var})/{var}" or expr_simple == f"{var}/ln(1+{var})":
-    #             return 1.0, "Standard limit: ln(1+x)/x as x->0 = 1"
-    #         #(a^x-1)/x)
-
-    def _check_standard_limits(
-        self, expr_str: str, limit_point: float
-    ) -> tuple[float | None, str | None]:
-        """Check for common standard limits using string matching and regex."""
-        expr_simple = expr_str.replace(" ", "").lower()
-        var = self.variable.lower()
-        var_esc = re.escape(var)  # Escaped variable for regex
-
-        # --- Limits as var -> 0 ---
-        if abs(limit_point) < self.epsilon:
-            # Basic Trig Limits (Exact Match)
-            if expr_simple == f"sin({var})/{var}" or expr_simple == f"{var}/sin({var})":
-                return 1.0, f"Standard limit: lim (sin({var})/{var}) as {var}->0 = 1"
-            if expr_simple == f"tan({var})/{var}" or expr_simple == f"{var}/tan({var})":
-                return 1.0, f"Standard limit: lim (tan({var})/{var}) as {var}->0 = 1"
-            if expr_simple == f"(1-cos({var}))/{var}":
-                return 0.0, f"Standard limit: lim (1-cos({var}))/{var} as {var}->0 = 0"
-            # Inverse of (1-cos(x))/x -> inf, cannot return float
-            # if expr_simple == f"{var}/(1-cos({var}))":
-            #     return INF, f"Standard limit: lim {var}/(1-cos({var})) as {var}->0 = ∞" # Or handle DNE/infinity appropriately
-            if expr_simple == f"(1-cos({var}))/({var}^2)":
-                return (
-                    0.5,
-                    f"Standard limit: lim (1-cos({var}))/({var}^2) as {var}->0 = 1/2",
-                )
-            if expr_simple == f"({var}^2)/(1-cos({var}))":
-                return (
-                    2.0,
-                    f"Standard limit: lim ({var}^2)/(1-cos({var})) as {var}->0 = 2",
-                )
-
-            # Exponential/Logarithmic Limits (Exact Match for e and ln)
-            if (
-                expr_simple == f"(e^{var}-1)/{var}"
-                or expr_simple == f"{var}/(e^{var}-1)"
-            ):
-                return 1.0, f"Standard limit: lim (e^{var}-1)/{var} as {var}->0 = 1"
-            if (
-                expr_simple == f"ln(1+{var})/{var}"
-                or expr_simple == f"{var}/ln(1+{var})"
-            ):
-                return 1.0, f"Standard limit: lim ln(1+{var})/{var} as {var}->0 = 1"
-
-            # --- Limits requiring Regex for constants 'a' or 'n' ---
-
-            # (a^x - 1) / x = ln(a)
-            # Matches (number^var - 1)/var or var/(number^var - 1)
-            pattern_ax = re.compile(
-                rf"^\((?P<base>\d+\.?\d*)\^{var_esc}-1\)/{var_esc}$"
-            )
-            pattern_ax_inv = re.compile(
-                rf"^{var_esc}/\((?P<base>\d+\.?\d*)\^{var_esc}-1\)$"
-            )
-
-            match = pattern_ax.match(expr_simple)
-            if match:
-                try:
-                    a = float(match.group("base"))
-                    if a > 0 and a != 1:
-                        result = math.log(a)  # Natural log
-                        return (
-                            result,
-                            f"Standard limit: lim ({a}^{var}-1)/{var} as {var}->0 = ln({a}) ≈ {result}",
-                        )
-                except ValueError:
-                    pass  # Ignore if base is not a valid float
-
-            match = pattern_ax_inv.match(expr_simple)
-            if match:
-                try:
-                    a = float(match.group("base"))
-                    if a > 0 and a != 1:
-                        ln_a = math.log(a)
-                        if abs(ln_a) < self.epsilon:
-                            return (
-                                None,
-                                f"Limit is ∞ (division by ln(1)=0)",
-                            )  # Avoid division by zero
-                        result = 1.0 / ln_a
-                        return (
-                            result,
-                            f"Standard limit: lim {var}/({a}^{var}-1) as {var}->0 = 1/ln({a}) ≈ {result}",
-                        )
-                except ValueError:
-                    pass  # Ignore
-
-            # ((1+x)^n - 1) / x = n
-            # Matches ((1+var)^number - 1)/var or var/((1+var)^number - 1)
-            pattern_1xn = re.compile(
-                rf"^\(\(1\+{var_esc}\)\^(?P<exp>\d+\.?\d*)-1\)/{var_esc}$"
-            )
-            pattern_1xn_inv = re.compile(
-                rf"^{var_esc}/\(\(1\+{var_esc}\)\^(?P<exp>\d+\.?\d*)-1\)$"
-            )
-
-            match = pattern_1xn.match(expr_simple)
-            if match:
-                try:
-                    n = float(match.group("exp"))
-                    return (
-                        n,
-                        f"Standard limit: lim ((1+{var})^{n}-1)/{var} as {var}->0 = {n}",
-                    )
-                except ValueError:
-                    pass  # Ignore
-
-            match = pattern_1xn_inv.match(expr_simple)
-            if match:
-                try:
-                    n = float(match.group("exp"))
-                    if abs(n) < self.epsilon:
-                        return (
-                            None,
-                            f"Limit is ∞ (division by n=0)",
-                        )  # Avoid division by zero
-                    result = 1.0 / n
-                    return (
-                        result,
-                        f"Standard limit: lim {var}/((1+{var})^{n}-1) as {var}->0 = 1/{n} ≈ {result}",
-                    )
-                except ValueError:
-                    pass  # Ignore
-
-            # sin(ax)/x = a
-            pattern_sinax = re.compile(
-                rf"^sin\((?P<coeff>\d+\.?\d*\*?){var_esc}\)/{var_esc}$"
-            )
-            pattern_sinax_inv = re.compile(
-                rf"^{var_esc}/sin\((?P<coeff>\d+\.?\d*\*?){var_esc}\)$"
-            )
-
-            match = pattern_sinax.match(expr_simple)
-            if match:
-                try:
-                    a_str = match.group("coeff").replace("*", "")
-                    a = (
-                        float(a_str) if a_str else 1.0
-                    )  # Handle sin(x)/x case again slightly differently
-                    return (
-                        a,
-                        f"Standard limit: lim sin({a}{var})/{var} as {var}->0 = {a}",
-                    )
-                except ValueError:
-                    pass
-
-            match = pattern_sinax_inv.match(expr_simple)
-            if match:
-                try:
-                    a_str = match.group("coeff").replace("*", "")
-                    a = float(a_str) if a_str else 1.0
-                    if abs(a) < self.epsilon:
-                        return None, f"Limit is ∞ (division by a=0)"
-                    return (
-                        1.0 / a,
-                        f"Standard limit: lim {var}/sin({a}{var}) as {var}->0 = 1/{a}",
-                    )
-                except ValueError:
-                    pass
-
-            # tan(ax)/x = a (similar to sin)
-            pattern_tanax = re.compile(
-                rf"^tan\((?P<coeff>\d+\.?\d*\*?){var_esc}\)/{var_esc}$"
-            )
-            pattern_tanax_inv = re.compile(
-                rf"^{var_esc}/tan\((?P<coeff>\d+\.?\d*\*?){var_esc}\)$"
-            )
-            match = pattern_tanax.match(expr_simple)
-            if match:
-                try:
-                    a_str = match.group("coeff").replace("*", "")
-                    a = float(a_str) if a_str else 1.0
-                    return (
-                        a,
-                        f"Standard limit: lim tan({a}{var})/{var} as {var}->0 = {a}",
-                    )
-                except ValueError:
-                    pass
-
-            match = pattern_tanax_inv.match(expr_simple)
-            if match:
-                try:
-                    a_str = match.group("coeff").replace("*", "")
-                    a = float(a_str) if a_str else 1.0
-                    if abs(a) < self.epsilon:
-                        return None, f"Limit is ∞ (division by a=0)"
-                    return (
-                        1.0 / a,
-                        f"Standard limit: lim {var}/tan({a}{var}) as {var}->0 = 1/{a}",
-                    )
-                except ValueError:
-                    pass
-
-            # ln(1+ax)/x = a
-            pattern_lnax = re.compile(
-                rf"^ln\(1\+(?P<coeff>\d+\.?\d*\*?){var_esc}\)/{var_esc}$"
-            )
-            pattern_lnax_inv = re.compile(
-                rf"^{var_esc}/ln\(1\+(?P<coeff>\d+\.?\d*\*?){var_esc}\)$"
-            )
-            match = pattern_lnax.match(expr_simple)
-            if match:
-                try:
-                    a_str = match.group("coeff").replace("*", "")
-                    a = float(a_str) if a_str else 1.0  # Handle ln(1+x)/x
-                    return (
-                        a,
-                        f"Standard limit: lim ln(1+{a}{var})/{var} as {var}->0 = {a}",
-                    )
-                except ValueError:
-                    pass
-
-            match = pattern_lnax_inv.match(expr_simple)
-            if match:
-                try:
-                    a_str = match.group("coeff").replace("*", "")
-                    a = float(a_str) if a_str else 1.0
-                    if abs(a) < self.epsilon:
-                        return None, f"Limit is ∞ (division by a=0)"
-                    return (
-                        1.0 / a,
-                        f"Standard limit: lim {var}/ln(1+{a}{var}) as {var}->0 = 1/{a}",
-                    )
-                except ValueError:
-                    pass
-
-        # --- Limits as var -> infinity ---
-        # Use actual infinity check instead of large number
-        if limit_point == INF:
-            # (1 + 1/x)^x -> e (Exact Match)
-            if expr_simple == f"(1+1/{var})^{var}":
-                return E, f"Standard limit: lim (1+1/{var})^{var} as {var}->∞ = e ≈ {E}"
-
-            # (1 + a/x)^x -> e^a (Regex)
-            pattern_1ax_inf = re.compile(
-                rf"^\(1\+(?P<coeff>\d+\.?\d*)/{var_esc}\)\^{var_esc}$"
-            )
-            match = pattern_1ax_inf.match(expr_simple)
-            if match:
-                try:
-                    a = float(match.group("coeff"))
-                    result = math.exp(a)
-                    return (
-                        result,
-                        f"Standard limit: lim (1+{a}/{var})^{var} as {var}->∞ = e^{a} ≈ {result}",
-                    )
-                except ValueError:
-                    pass  # Ignore if coeff is not a valid float
-
-        # --- Limits as var -> -infinity ---
-        # Add specific checks if needed, e.g., for (1 + 1/x)^x -> e
-
-        # No standard limit found
-        return None, None
-
-    def _analyze_form(self, value: float) -> str:
-        """Analyze the result of direct substitution."""
-        if isinstance(value, (int, float)):
-            if math.isnan(value):
-                # Need to determine *why* it's NaN (0/0, inf/inf, 0*inf, inf-inf, 1^inf, 0^0, inf^0)
-                # This requires evaluating numerator/denominator or parts separately,
-                # which is complex without an AST. We'll make educated guesses based on common patterns.
-                # This part is a major limitation without symbolic representation.
-
-                # Simplistic check: if expression has '/', suspect 0/0 or inf/inf
-                if "/" in self.original_expression:
-                    # Try evaluating numerator and denominator separately (VERY basic)
-                    try:
-                        parts = self.original_expression.split("/")
-                        num_expr = parts[0].strip("() ")
-                        den_expr = parts[1].strip("() ")
-                        num_val = self._safe_evaluate(
-                            tokenize(num_expr, self.variable), self.limit_point
-                        )
-                        den_val = self._safe_evaluate(
-                            tokenize(den_expr, self.variable), self.limit_point
-                        )
-
-                        logger.info(
-                            f"Indeterminate check: Num val={num_val}, Den val={den_val}"
-                        )
-
-                        if abs(num_val) < self.epsilon and abs(den_val) < self.epsilon:
-                            return "0/0"
-                        if abs(num_val) == INF and abs(den_val) == INF:
-                            return "∞/∞"
-                    except Exception as e:
-                        logger.warning(f"Failed numerator/denominator split check: {e}")
-                        pass  # Fallback below
-
-                # Simplistic check for 1^inf
-                if "^" in self.original_expression:
-                    try:
-                        parts = self.original_expression.split("^")
-                        base_expr = parts[0].strip("() ")
-                        exp_expr = parts[1].strip("() ")
-                        base_val = self._safe_evaluate(
-                            tokenize(base_expr, self.variable), self.limit_point
-                        )
-                        exp_val = self._safe_evaluate(
-                            tokenize(exp_expr, self.variable), self.limit_point
-                        )
-
-                        logger.info(
-                            f"Indeterminate check: Base val={base_val}, Exp val={exp_val}"
-                        )
-
-                        if abs(base_val - 1) < self.epsilon and abs(exp_val) == INF:
-                            return "1^∞"
-                        if abs(base_val) < self.epsilon and abs(exp_val) < self.epsilon:
-                            return "0^0"
-                        if abs(base_val) == INF and abs(exp_val) < self.epsilon:
-                            return "∞^0"
-                    except Exception as e:
-                        logger.warning(f"Failed base/exponent split check: {e}")
-                        pass  # Fallback below
-
-                # Other checks (0 * inf, inf - inf) are even harder without structure
-
-                return "Indeterminate (Unknown Type)"  # Default if specific form not identified
-            elif math.isinf(value):
-                return "∞" if value > 0 else "-∞"
-            else:
-                return "Finite"
-        return "Evaluation Failed"
-
-    # --- Placeholder Symbolic Methods ---
-    # These would require a proper CAS implementation
-    def _try_factorization(self, current_expr_str: str) -> str | None:
-        """
-        Attempts simple pattern-based factorization. Returns simplified expression string or None.
-        THIS IS HIGHLY SIMPLIFIED AND ILLUSTRATIVE.
-        """
-        expr_simple = current_expr_str.replace(" ", "").lower()
-        var = self.variable.lower()
-
-        # Example: (x^2 - a^2) / (x - a) -> x + a
-        if self.limit_point != INF and self.limit_point != NEG_INF:
-            a = self.limit_point
-            a_sq = a * a
-
-            # Construct target patterns, handling potential float representations
-            # Use format to avoid issues with negative 'a' in regex pattern construct
-            a_str = str(a)
-            a_sq_str = str(a_sq)
-
-            # More robust check comparing simplified strings
-            target_pattern1 = f"({var}^2-{a_sq_str})/({var}-{a_str})"
-            target_pattern2 = f"(({var}^2)-({a_sq_str}))/(({var})-({a_str}))"  # With extra parens sometimes present
-
-            if expr_simple == target_pattern1 or expr_simple == target_pattern2:
-                self._add_step(
-                    "Applying factorization",
-                    f"Detected form (x² - a²)/(x - a) where a = {a}. Simplifying to x + a.",
-                )
-                # *** CORRECTED RETURN VALUE ***
-                return f"{var} + {a}"  # Return the actual simplified expression string
-
-        # Add more simple patterns here
-
-        return None  # No simple factorization found
-
-    def _try_rationalization(self, current_expr_str: str) -> str | None:
-        """
-        Attempts simple pattern-based rationalization. Returns modified expression string or None.
-        THIS IS HIGHLY SIMPLIFIED AND ILLUSTRATIVE.
-        """
-        expr = current_expr_str.replace(" ", "").lower()
-        var = self.variable.lower()
-
-        # Example: (sqrt(x) - sqrt(a)) / (x - a) as x -> a
-        # Multiply by (sqrt(x) + sqrt(a)) / (sqrt(x) + sqrt(a))
-        # -> (x - a) / ((x - a) * (sqrt(x) + sqrt(a))) -> 1 / (sqrt(x) + sqrt(a))
-        if (
-            self.limit_point != INF
-            and self.limit_point != NEG_INF
-            and self.limit_point >= 0
-        ):
-            a = self.limit_point
-            sqrt_a = math.sqrt(a)
-            # Pattern is very specific here due to lack of parsing
-            pattern = rf"\(sqrt\({var}\)-({sqrt_a}|{float(sqrt_a)})\)/\(({var}-({a}|{float(a)}))\)"
-            if re.search(pattern, expr):
-                self._add_step(
-                    "Applying rationalization",
-                    f"Detected form (√x - √a)/(x - a) where a = {a}. Multiplying by conjugate (√x + √a)/(√x + √a).",
-                )
-                self._add_step(
-                    "Simplification",
-                    f"Expression becomes (x - a) / [(x - a)(√x + √a)] = 1 / (√x + √a)",
-                )
-                return f"1/(sqrt({var})+{sqrt_a})"
-
-        # Add more rationalization patterns (e.g., in numerator)
-
-        return None
-
-    def _handle_limit_at_infinity(
-        self, expr_tokens: list
-    ) -> tuple[float | None, str | None]:
-        """
-        Handles limits of rational functions at infinity by comparing highest powers.
-        SIMPLIFIED: Assumes a simple rational function structure.
-        """
-        # This requires identifying numerator and denominator and their degrees.
-        # Very hard without an AST. We can try a regex approach for simple cases like P(x)/Q(x).
-        expr_str = self.original_expression  # Use original for this crude check
-
-        # Basic check for rational function structure (crude)
-        if "/" not in expr_str or "^" not in expr_str:
-            return (
-                None,
-                None,
-            )  # Not easily identifiable as rational function for this method
-
         try:
-            num_expr, den_expr = expr_str.split("/", 1)
-            num_expr = num_expr.strip("() ")
-            den_expr = den_expr.strip("() ")
+            # Use the pre-tokenized list
+            eval_result = evaluate_expression(self.fallback_tokens, value, self.variable_str)
 
-            # Find highest power of variable in numerator and denominator (very crude regex)
-            num_powers = [
-                int(p)
-                for p in re.findall(rf"{re.escape(self.variable)}\^(\d+)", num_expr)
-            ]
-            den_powers = [
-                int(p)
-                for p in re.findall(rf"{re.escape(self.variable)}\^(\d+)", den_expr)
-            ]
+            # Check for NaN or Inf explicitly from the numerical evaluator
+            if isinstance(eval_result, float) and (math.isnan(eval_result) or math.isinf(eval_result)):
+                return eval_result # Return NaN, INF, NEG_INF as is
+            elif not isinstance(eval_result, (int, float)):
+                 logger.error(f"Numerical evaluation returned non-numeric type: {type(eval_result)}")
+                 return NAN
+            return float(eval_result)
 
-            # Check for standalone variable term (power 1)
-            if re.search(rf"(?<!\^)\b{re.escape(self.variable)}\b", num_expr):
-                num_powers.append(1)
-            if re.search(rf"(?<!\^)\b{re.escape(self.variable)}\b", den_expr):
-                den_powers.append(1)
-
-            num_degree = max(num_powers) if num_powers else 0
-            den_degree = max(den_powers) if den_powers else 0
-
-            # Find coefficients of highest power terms (extremely crude, likely fails often)
-            num_coeff_match = (
-                re.search(
-                    rf"([\+\-]?\s*\d*\.?\d*)\*?{re.escape(self.variable)}\^{num_degree}",
-                    num_expr,
-                )
-                if num_degree > 0
-                else re.search(r"^([\+\-]?\s*\d+\.?\d*)", num_expr)
-            )  # Constant term
-            den_coeff_match = (
-                re.search(
-                    rf"([\+\-]?\s*\d*\.?\d*)\*?{re.escape(self.variable)}\^{den_degree}",
-                    den_expr,
-                )
-                if den_degree > 0
-                else re.search(r"^([\+\-]?\s*\d+\.?\d*)", den_expr)
-            )  # Constant term
-
-            num_lead_coeff = 1.0
-            if num_coeff_match:
-                coeff_str = num_coeff_match.group(1).replace(" ", "")
-                if coeff_str == "+" or coeff_str == "":
-                    num_lead_coeff = 1.0
-                elif coeff_str == "-":
-                    num_lead_coeff = -1.0
-                else:
-                    num_lead_coeff = float(coeff_str)
-            elif num_degree == 0 and is_number(
-                num_expr
-            ):  # Check if numerator is just a number
-                num_lead_coeff = float(num_expr)
-
-            den_lead_coeff = 1.0
-            if den_coeff_match:
-                coeff_str = den_coeff_match.group(1).replace(" ", "")
-                if coeff_str == "+" or coeff_str == "":
-                    den_lead_coeff = 1.0
-                elif coeff_str == "-":
-                    den_lead_coeff = -1.0
-                else:
-                    den_lead_coeff = float(coeff_str)
-            elif den_degree == 0 and is_number(
-                den_expr
-            ):  # Check if denominator is just a number
-                den_lead_coeff = float(den_expr)
-
-            if (
-                den_lead_coeff == 0
-            ):  # Avoid division by zero if denominator degree analysis wrong
-                return None, "Could not determine leading coefficient of denominator."
-
-            explanation = (
-                f"Analyzing limit at {self.tending_to_str}. "
-                f"Highest power in numerator ≈ {num_degree} (coeff ≈ {num_lead_coeff}). "
-                f"Highest power in denominator ≈ {den_degree} (coeff ≈ {den_lead_coeff})."
-            )
-
-            result = None
-            if num_degree == den_degree:
-                result = num_lead_coeff / den_lead_coeff
-                explanation += f" Degrees are equal, limit is ratio of leading coefficients: {result}."
-            elif num_degree < den_degree:
-                result = 0.0
-                explanation += (
-                    " Degree of numerator < degree of denominator, limit is 0."
-                )
-            else:  # num_degree > den_degree
-                # Limit is inf or -inf, sign depends on coeffs and whether x -> inf or -inf
-                sign = num_lead_coeff / den_lead_coeff
-                power_diff_is_even = (num_degree - den_degree) % 2 == 0
-
-                if self.limit_point == INF:
-                    result = INF if sign > 0 else NEG_INF
-                else:  # limit_point == NEG_INF
-                    if power_diff_is_even:
-                        result = INF if sign > 0 else NEG_INF  # (-ve)^even is +ve
-                    else:
-                        result = NEG_INF if sign > 0 else INF  # (-ve)^odd is -ve
-
-                explanation += (
-                    f" Degree of numerator > degree of denominator, limit is {result}."
-                )
-
-            return result, explanation
-
+        except (ValueError, ZeroDivisionError, OverflowError, TypeError, IndexError) as e:
+            logger.error(f"Error during numerical evaluation at value {value}: {e}")
+            return NAN
         except Exception as e:
-            logger.warning(f"Error in limit at infinity analysis: {e}")
-            return None, f"Failed to analyze dominant terms: {e}"
+             logger.exception(f"Unexpected error during numerical evaluation at value {value}: {e}")
+             return NAN
 
-        # --- Main Calculation Method ---
 
     def calculate(self) -> Dict[str, Any]:
         self._add_step(
             "Initial Expression",
-            f"lim ({self.original_expression}) as {self.variable} → {self.tending_to_str}",
+            f"Find the limit of f({self.variable_str}) = {sympy.pretty(self.sympy_expr)} as {self.variable_str} → {self.tending_to_str}",
         )
 
+        current_expr = self.sympy_expr
+        limit_calculated = False
+        final_result_obj = None # Store the sympy object result
+
         try:
-            self.tokens = tokenize(self.original_expression, self.variable)
-            current_expr_str = (
-                self.original_expression
-            )  # Keep track of simplified expression string
-            current_tokens = self.tokens
+            # 1. Attempt Direct Substitution
+            self._add_step("Attempt Direct Substitution", f"Substitute {self.variable_str} = {self.tending_to_str} into the expression.")
+            try:
+                # Use subs for substitution, then evaluate if possible
+                sub_result = current_expr.subs(self.sympy_var, self.sympy_limit_point)
+                self._add_step("Substitution Result", f"Result: {sympy.pretty(sub_result)}")
 
-            # 1. Check Standard Limits First
-            std_limit_val, std_limit_expl = self._check_standard_limits(
-                current_expr_str, self.limit_point
-            )
-            if std_limit_val is not None:
-                self._add_step("Standard Limit Found", std_limit_expl)
-                self.result = str(std_limit_val)
-                return {"steps": self.steps, "result": self.result}
+                # Check if substitution yielded a direct answer (finite, oo, -oo)
+                # Need to be careful with symbolic results like 'pi' vs indeterminate forms
+                is_indeterminate = sub_result.is_infinite or sub_result is sympy.nan or sub_result.is_complex or \
+                                   (isinstance(sub_result, sympy.Number) and not sub_result.is_finite and sub_result is not sympy.oo and sub_result is not -sympy.oo) or \
+                                   sub_result.has(sympy.oo, -sympy.oo, sympy.zoo, sympy.nan) # More robust check for hidden indeterminacy
 
-            # 2. Try Direct Substitution
-            self._add_step(
-                "Attempting Direct Substitution",
-                f"Evaluating expression at {self.variable} = {self.tending_to_str}",
-            )
-            direct_eval_result = self._safe_evaluate(current_tokens, self.limit_point)
-            self._add_step(
-                "Direct Substitution Result", f"Result: {direct_eval_result}"
-            )
+                if not is_indeterminate and sub_result.is_finite is not None: # Check if it's a determinate value
+                    final_result_obj = sub_result
+                    limit_calculated = True
+                    self._add_step("Conclusion", f"Direct substitution yields a determinate value: {self._format_sympy_result(final_result_obj)}")
+                else:
+                    # Check for specific indeterminate forms like 0/0 or oo/oo for L'Hopital's later
+                    num, den = current_expr.as_numer_denom()
+                    num_limit = sympy.limit(num, self.sympy_var, self.sympy_limit_point)
+                    den_limit = sympy.limit(den, self.sympy_var, self.sympy_limit_point)
 
-            form = self._analyze_form(direct_eval_result)
-            self._add_step("Analysis of Result", f"The form is: {form}")
+                    indeterminate_form = None
+                    if num_limit == 0 and den_limit == 0:
+                        indeterminate_form = "0/0"
+                    elif num_limit.is_infinite and den_limit.is_infinite:
+                         # Check sign for oo/oo, -oo/oo etc.
+                         if (num_limit == sympy.oo and den_limit == sympy.oo) or \
+                            (num_limit == -sympy.oo and den_limit == -sympy.oo):
+                             indeterminate_form = "∞/∞"
+                         elif (num_limit == sympy.oo and den_limit == -sympy.oo) or \
+                              (num_limit == -sympy.oo and den_limit == sympy.oo):
+                             indeterminate_form = "-∞/∞" # Or similar
+                         else: # Mixed infinities or complex infinity
+                             indeterminate_form = "∞/∞ type"
+                    # Add checks for other forms if needed (0*oo, oo-oo, 1^oo, 0^0, oo^0)
 
-            if form == "Finite":
-                self.result = str(direct_eval_result)
-                return {"steps": self.steps, "result": self.result}
-            elif form == "∞" or form == "-∞":
-                self.result = "∞" if direct_eval_result > 0 else "-∞"
-                return {"steps": self.steps, "result": self.result}
-
-            # 3. Handle Indeterminate Forms
-            while (
-                form != "Finite" and form != "∞" and form != "-∞"
-            ):  # Loop for potential simplification steps
-
-                previous_expr_str = (
-                    current_expr_str  # To detect if simplification occurred
-                )
-
-                if form == "0/0" or form == "∞/∞":
-                    # Try Factorization (Simplified)
-                    simplified_expr = self._try_factorization(current_expr_str)
-                    if simplified_expr:
-                        current_expr_str = simplified_expr
-                        current_tokens = tokenize(current_expr_str, self.variable)
-                        self._add_step(
-                            "Re-evaluating after Factorization",
-                            f"New expression: {current_expr_str}",
-                        )
-                        direct_eval_result = self._safe_evaluate(
-                            current_tokens, self.limit_point
-                        )
-                        form = self._analyze_form(direct_eval_result)
-                        self._add_step(
-                            "Re-evaluation Result",
-                            f"Result: {direct_eval_result}, Form: {form}",
-                        )
-                        continue  # Restart analysis with simplified expression
-
-                    # Try Rationalization (Simplified)
-                    rationalized_expr = self._try_rationalization(current_expr_str)
-                    if rationalized_expr:
-                        current_expr_str = rationalized_expr
-                        current_tokens = tokenize(current_expr_str, self.variable)
-                        self._add_step(
-                            "Re-evaluating after Rationalization",
-                            f"New expression: {current_expr_str}",
-                        )
-                        direct_eval_result = self._safe_evaluate(
-                            current_tokens, self.limit_point
-                        )
-                        form = self._analyze_form(direct_eval_result)
-                        self._add_step(
-                            "Re-evaluation Result",
-                            f"Result: {direct_eval_result}, Form: {form}",
-                        )
-                        continue  # Restart analysis
-
-                    # Try L'Hôpital's Rule (Conceptual - No differentiation implemented)
-                    self._add_step(
-                        "L'Hôpital's Rule Suggestion",
-                        "Form is 0/0 or ∞/∞. L'Hôpital's Rule might apply (requires differentiation).",
-                    )
-                    self._add_step(
-                        "Limitation",
-                        "Symbolic differentiation is not implemented in this version.",
-                    )
-                    # Cannot proceed further with L'Hopital here
-
-                    # Try Limit at Infinity specific method if applicable
-                    if self.limit_point == INF or self.limit_point == NEG_INF:
-                        inf_lim_val, inf_lim_expl = self._handle_limit_at_infinity(
-                            current_tokens
-                        )
-                        if inf_lim_val is not None:
-                            self._add_step("Limit at Infinity Analysis", inf_lim_expl)
-                            self.result = str(inf_lim_val)
-                            return {"steps": self.steps, "result": self.result}
-                        else:
-                            self._add_step(
-                                "Limit at Infinity Analysis",
-                                "Could not determine limit using dominant terms analysis.",
-                            )
-
-                    # If no simplification worked, break the loop for 0/0 or inf/inf
-                    self._add_step(
-                        "Stuck on Indeterminate Form",
-                        f"Could not simplify the expression further using available methods for {form}.",
-                    )
-                    break
-
-                elif form == "1^∞":
-                    # Apply lim f(x)^g(x) = exp(lim g(x) * (f(x) - 1))
-                    self._add_step(
-                        "Handling 1^∞ Form",
-                        "Detected form 1^∞. Transforming using lim f(x)^g(x) = exp(lim [g(x) * (f(x) - 1)]).",
-                    )
-                    try:
-                        parts = current_expr_str.split("^")
-                        if len(parts) != 2:
-                            raise ValueError(
-                                "Expression not in base^exponent form for 1^inf"
-                            )
-                        base_expr = parts[0].strip("() ")
-                        exp_expr = parts[1].strip("() ")
-
-                        # Construct the new expression for the limit in the exponent
-                        inner_limit_expr = f"({exp_expr}) * (({base_expr}) - 1)"
-                        self._add_step(
-                            "New Limit Calculation",
-                            f"Need to calculate the limit of: {inner_limit_expr} as {self.variable} → {self.tending_to_str}",
-                        )
-
-                        # *** RECURSIVE CALL (or iterative approach) NEEDED HERE ***
-                        # Create a new LimitCalculator instance for the inner limit
-                        # inner_calculator = LimitCalculator(inner_limit_expr, self.variable, self.tending_to_str)
-                        # inner_result_data = inner_calculator.calculate()
-                        # self.steps.extend(inner_result_data['steps']) # Append steps from inner calculation
-
-                        # For simplicity here, we'll just state the need, not implement recursion fully
-                        self._add_step(
-                            "Limitation",
-                            "Calculating the inner limit recursively is required but not fully implemented here.",
-                        )
-
-                        # Placeholder: Assume inner limit 'L' was calculated
-                        # inner_limit_result_str = inner_result_data['result']
-                        # if inner_limit_result_str not in ["Could not determine limit", "DNE", "Undefined"]:
-                        #      try:
-                        #          inner_limit_val = float(inner_limit_result_str) # Or handle inf/-inf
-                        #          final_result = math.exp(inner_limit_val)
-                        #          self._add_step("Final Result (1^∞)", f"Inner limit L = {inner_limit_val}. Final result = e^L = {final_result}")
-                        #          self.result = str(final_result)
-                        #          return {"steps": self.steps, "result": self.result}
-                        #      except ValueError:
-                        #           self._add_step("Error", f"Could not convert inner limit result '{inner_limit_result_str}' to number.")
-                        # else:
-                        #      self._add_step("Result", "Could not determine the inner limit, so the original limit cannot be resolved this way.")
-
-                        break  # Break after attempting 1^inf handling
-                    except Exception as e:
-                        logger.error(f"Error processing 1^inf form: {e}")
-                        self._add_step("Error", f"Failed to process 1^∞ form: {e}")
-                        break
-
-                elif form == "0*∞" or form == "∞-∞":
-                    # Suggest transformation
-                    if form == "0*∞":
-                        self._add_step(
-                            "Handling 0*∞ Form",
-                            "Detected form 0 * ∞. Try rewriting as f/(1/g) (form 0/0) or g/(1/f) (form ∞/∞).",
-                        )
-                    elif form == "∞-∞":
-                        self._add_step(
-                            "Handling ∞-∞ Form",
-                            "Detected form ∞ - ∞. Try combining terms (e.g., common denominator, rationalization) to get a different form.",
-                        )
-                    self._add_step(
-                        "Limitation",
-                        "Symbolic transformation is not implemented in this version.",
-                    )
-                    break  # Cannot proceed further
-
-                elif form == "0^0" or form == "∞^0":
-                    self._add_step(
-                        f"Handling {form} Form",
-                        f"Detected indeterminate form {form}. Often requires rewriting using exponentials (f^g = exp(g*ln(f))) and evaluating the limit of the exponent.",
-                    )
-                    self._add_step(
-                        "Limitation",
-                        "Symbolic transformation is not implemented in this version.",
-                    )
-                    break  # Cannot proceed further
-
-                else:  # Indeterminate (Unknown Type) or other issues
-                    self._add_step(
-                        "Indeterminate Form",
-                        f"Could not resolve the indeterminate form '{form}' with available methods.",
-                    )
-                    break  # Cannot resolve
-
-                # Check if simplification happened. If not, break loop to avoid infinite loop.
-                if current_expr_str == previous_expr_str:
-                    self._add_step(
-                        "No Progress",
-                        "No simplification method could be applied successfully in this step.",
-                    )
-                    break
-
-            # 4. Numerical Check (Fallback/Verification) - Only if limit is finite and no result yet
-            if (
-                self.result == "Could not determine limit"
-                and self.limit_point != INF
-                and self.limit_point != NEG_INF
-            ):
-                self._add_step(
-                    "Attempting Numerical Check",
-                    f"Evaluating function near {self.variable} = {self.limit_point}",
-                )
-                try:
-                    left_val = self._safe_evaluate(
-                        self.tokens, self.limit_point - self.epsilon
-                    )
-                    right_val = self._safe_evaluate(
-                        self.tokens, self.limit_point + self.epsilon
-                    )
-                    self._add_step(
-                        "Numerical Evaluation",
-                        f"f({self.limit_point - self.epsilon}) ≈ {left_val}, f({self.limit_point + self.epsilon}) ≈ {right_val}",
-                    )
-
-                    if (
-                        not math.isnan(left_val)
-                        and not math.isnan(right_val)
-                        and abs(left_val - right_val) < 1e-5
-                    ):  # Tolerance for numerical check
-                        limit_approx = (left_val + right_val) / 2
-                        # Refine approximation slightly
-                        if abs(limit_approx) < 1e-9:
-                            limit_approx = 0.0
-
-                        # Check against direct eval if it was finite but perhaps failed form analysis initially
-                        if (
-                            form == "Finite"
-                            and abs(direct_eval_result - limit_approx) < 1e-5
-                        ):
-                            self._add_step(
-                                "Numerical Verification",
-                                f"Numerical check agrees with direct substitution ({direct_eval_result}).",
-                            )
-                            self.result = str(direct_eval_result)
-                        else:
-                            self._add_step(
-                                "Numerical Result",
-                                f"Left and right evaluations are close. Approximated limit ≈ {limit_approx}",
-                            )
-                            self.result = str(
-                                limit_approx
-                            )  # Use numerical approximation
-                    elif (
-                        math.isinf(left_val)
-                        and math.isinf(right_val)
-                        and left_val == right_val
-                    ):
-                        self._add_step(
-                            "Numerical Result",
-                            f"Left and right evaluations both tend to {'∞' if left_val > 0 else '-∞'}.",
-                        )
-                        self.result = "∞" if left_val > 0 else "-∞"
+                    if indeterminate_form:
+                         self._add_step("Indeterminate Form", f"Substitution results in an indeterminate form of type {indeterminate_form}.")
                     else:
-                        self._add_step(
-                            "Numerical Result",
-                            "Left and right evaluations differ significantly or failed. Limit likely Does Not Exist (DNE) or calculation failed.",
-                        )
-                        self.result = "DNE"
+                         self._add_step("Indeterminate Form", f"Substitution results in an indeterminate form ({sympy.pretty(sub_result)}).")
+
+            except Exception as e:
+                self._add_step("Substitution Error", f"Error during substitution: {e}")
+                logger.warning(f"Error during substitution: {e}")
+
+            # 2. Attempt Simplification (if substitution failed or was indeterminate)
+            if not limit_calculated:
+                self._add_step("Attempt Simplification", "Try simplifying the expression.")
+                try:
+                    # Use cancel for rational functions, simplify for general expressions
+                    if current_expr.is_rational_function():
+                        simplified_expr = sympy.cancel(current_expr)
+                        simplification_method = "sympy.cancel"
+                    else:
+                        simplified_expr = sympy.simplify(current_expr)
+                        simplification_method = "sympy.simplify"
+
+                    if simplified_expr != current_expr:
+                        self._add_step("Simplification Result", f"Using {simplification_method}: {sympy.pretty(simplified_expr)}")
+                        current_expr = simplified_expr # Update current expression
+
+                        # Try substitution again on the simplified expression
+                        self._add_step("Attempt Substitution (Simplified)", f"Substitute {self.variable_str} = {self.tending_to_str} into the simplified expression.")
+                        sub_result_simplified = current_expr.subs(self.sympy_var, self.sympy_limit_point)
+                        self._add_step("Substitution Result (Simplified)", f"Result: {sympy.pretty(sub_result_simplified)}")
+
+                        is_indeterminate_simplified = sub_result_simplified.is_infinite or sub_result_simplified is sympy.nan or sub_result_simplified.is_complex or \
+                                           (isinstance(sub_result_simplified, sympy.Number) and not sub_result_simplified.is_finite and sub_result_simplified is not sympy.oo and sub_result_simplified is not -sympy.oo) or \
+                                           sub_result_simplified.has(sympy.oo, -sympy.oo, sympy.zoo, sympy.nan)
+
+                        if not is_indeterminate_simplified and sub_result_simplified.is_finite is not None:
+                            final_result_obj = sub_result_simplified
+                            limit_calculated = True
+                            self._add_step("Conclusion", f"Substitution into simplified expression yields: {self._format_sympy_result(final_result_obj)}")
+                        else:
+                             # Check form again for L'Hopital's
+                             num, den = current_expr.as_numer_denom()
+                             num_limit = sympy.limit(num, self.sympy_var, self.sympy_limit_point)
+                             den_limit = sympy.limit(den, self.sympy_var, self.sympy_limit_point)
+                             if (num_limit == 0 and den_limit == 0) or (num_limit.is_infinite and den_limit.is_infinite):
+                                 self._add_step("Indeterminate Form (Simplified)", "Simplified expression still results in an indeterminate form suitable for L'Hôpital's Rule.")
+                             else:
+                                 self._add_step("Indeterminate Form (Simplified)", f"Substitution results in an indeterminate form ({sympy.pretty(sub_result_simplified)}).")
+
+                    else:
+                        self._add_step("Simplification Result", "Expression could not be simplified further.")
+
                 except Exception as e:
-                    logger.error(f"Error during numerical check: {e}")
+                    self._add_step("Simplification Error", f"Error during simplification: {e}")
+                    logger.warning(f"Error during simplification: {e}")
+
+            # 3. Attempt L'Hôpital's Rule (if form is 0/0 or oo/oo)
+            if not limit_calculated:
+                # Check the form AFTER potential simplification
+                num, den = current_expr.as_numer_denom()
+                num_limit = sympy.limit(num, self.sympy_var, self.sympy_limit_point)
+                den_limit = sympy.limit(den, self.sympy_var, self.sympy_limit_point)
+
+                # Check for 0/0 or (+/-)oo/(+/-)oo
+                is_lhopital_applicable = (num_limit == 0 and den_limit == 0) or \
+                                         (num_limit.is_infinite and den_limit.is_infinite)
+
+                if is_lhopital_applicable:
+                    self._add_step("Attempt L'Hôpital's Rule", "Indeterminate form (0/0 or ∞/∞) detected. Applying L'Hôpital's Rule.")
+                    try:
+                        num_diff = sympy.diff(num, self.sympy_var)
+                        den_diff = sympy.diff(den, self.sympy_var)
+                        self._add_step("Derivatives", f"Derivative of numerator: {sympy.pretty(num_diff)}\nDerivative of denominator: {sympy.pretty(den_diff)}")
+
+                        if den_diff == 0:
+                             self._add_step("L'Hôpital's Rule Error", "Denominator derivative is zero. Rule cannot be applied further in this way.")
+                        else:
+                            lhopital_expr = num_diff / den_diff
+                            self._add_step("L'Hôpital's Expression", f"New expression is: {sympy.pretty(lhopital_expr)}")
+
+                            # Calculate limit of the new expression
+                            self._add_step("Calculate Limit (L'Hôpital)", f"Find limit of {sympy.pretty(lhopital_expr)} as {self.variable_str} → {self.tending_to_str}")
+                            # Use sympy.limit directly on the L'Hopital expression
+                            limit_result_lhopital = sympy.limit(lhopital_expr, self.sympy_var, self.sympy_limit_point)
+
+                            formatted_lhopital_res = self._format_sympy_result(limit_result_lhopital)
+                            self._add_step("L'Hôpital's Result", f"Result after applying L'Hôpital's Rule: {formatted_lhopital_res}")
+
+                            # Check if L'Hopital gave a conclusive answer
+                            if not isinstance(limit_result_lhopital, sympy.Limit) and limit_result_lhopital is not sympy.nan:
+                                final_result_obj = limit_result_lhopital
+                                limit_calculated = True
+                                self._add_step("Conclusion", f"L'Hôpital's Rule yields the limit: {formatted_lhopital_res}")
+                            else:
+                                 self._add_step("L'Hôpital's Rule Inconclusive", "L'Hôpital's Rule did not yield a determinate limit. May need further application or other methods.")
+
+                    except Exception as e:
+                        self._add_step("L'Hôpital's Rule Error", f"Error applying L'Hôpital's Rule: {e}")
+                        logger.warning(f"Error applying L'Hopital's Rule: {e}")
+
+            # 4. Final Symbolic Attempt with sympy.limit (if other methods failed)
+            if not limit_calculated:
+                 self._add_step("Attempt General Symbolic Limit", f"Using sympy.limit on the expression: {sympy.pretty(current_expr)}")
+                 try:
+                     limit_result_sympy = sympy.limit(current_expr, self.sympy_var, self.sympy_limit_point)
+                     formatted_sympy_res = self._format_sympy_result(limit_result_sympy)
+                     self._add_step("Sympy Limit Result", f"sympy.limit result: {formatted_sympy_res}")
+
+                     # Check if sympy could evaluate it
+                     if not isinstance(limit_result_sympy, sympy.Limit) and limit_result_sympy is not sympy.nan:
+                         final_result_obj = limit_result_sympy
+                         limit_calculated = True
+                         self._add_step("Conclusion", f"General symbolic calculation yields: {formatted_sympy_res}")
+                     else:
+                          self._add_step("Symbolic Limit Inconclusive", "sympy.limit returned an unevaluated or indeterminate result.")
+
+                 except NotImplementedError as e:
+                      self._add_step("Symbolic Limit Error", f"Sympy does not support calculating this limit type: {e}")
+                      logger.warning(f"Sympy NotImplementedError: {e}")
+                 except Exception as e:
+                      # Catch potential errors within sympy's limit calculation
+                      self._add_step("Symbolic Limit Error", f"An error occurred during sympy.limit: {e}")
+                      logger.exception(f"Error during sympy.limit execution: {e}")
+
+
+            # 5. Numerical Check (Fallback) - Only if all symbolic methods failed
+            if not limit_calculated:
+                 # Check if numerical fallback is possible
+                 if self.fallback_tokens and self.numerical_limit_point is not None:
                     self._add_step(
-                        "Numerical Check Failed",
-                        f"An error occurred during numerical evaluation: {e}",
+                        "Attempting Numerical Check (Fallback)",
+                        f"Symbolic methods failed. Evaluating function numerically near {self.variable_str} = {self.tending_to_str}.",
                     )
 
-        except ValueError as e:
-            logger.error(f"Calculation Error: {e}")
-            self._add_step("Error", f"Invalid input or calculation error: {e}")
-            self.result = "Error"
-        except Exception as e:
-            logger.exception(
-                "Unexpected error during limit calculation"
-            )  # Log full traceback
-            self._add_step("Error", f"An unexpected error occurred: {e}")
-            self.result = "Error"
+                    num_limit_point = self.numerical_limit_point
+                    limit_approx_str = "Could not determine limit numerically"
 
-        # Final fallback if no method yielded a result
-        if self.result == "Could not determine limit":
-            # Check if numerical DNE was set
-            found_dne = any(
-                step["step"] == "Numerical Result" and "DNE" in step["explanation"]
-                for step in self.steps
-            )
-            if not found_dne:
-                self._add_step(
-                    "Conclusion",
-                    "Failed to determine the limit using implemented methods.",
-                )
-            else:
-                self.result = "DNE"  # Keep DNE if found numerically
+                    if num_limit_point == INF:
+                        # Evaluate at a large number
+                        val = self._safe_numerical_evaluate(self.large_number)
+                        self._add_step("Numerical Evaluation (∞)", f"f({self.large_number}) ≈ {val}")
+                        if val == INF: limit_approx_str = "∞"
+                        elif val == NEG_INF: limit_approx_str = "-∞"
+                        elif not math.isnan(val): limit_approx_str = f"≈ {val}" # Indicate approximation
+
+                    elif num_limit_point == NEG_INF:
+                         # Evaluate at a large negative number
+                        val = self._safe_numerical_evaluate(-self.large_number)
+                        self._add_step("Numerical Evaluation (-∞)", f"f({-self.large_number}) ≈ {val}")
+                        if val == INF: limit_approx_str = "∞"
+                        elif val == NEG_INF: limit_approx_str = "-∞"
+                        elif not math.isnan(val): limit_approx_str = f"≈ {val}" # Indicate approximation
+
+                    else: # Finite limit point
+                        try:
+                            left_val = self._safe_numerical_evaluate(num_limit_point - self.epsilon)
+                            right_val = self._safe_numerical_evaluate(num_limit_point + self.epsilon)
+                            self._add_step(
+                                "Numerical Evaluation (Finite)",
+                                f"f({num_limit_point - self.epsilon:.2e}) ≈ {left_val}, f({num_limit_point + self.epsilon:.2e}) ≈ {right_val}",
+                            )
+
+                            # Check if left and right limits are close enough
+                            tolerance = 1e-5 # Tolerance for numerical check agreement
+                            if math.isnan(left_val) or math.isnan(right_val):
+                                 limit_approx_str = "DNE (Numerical evaluation failed near point)"
+                            elif math.isinf(left_val) and math.isinf(right_val):
+                                 if left_val == right_val:
+                                     limit_approx_str = "∞" if left_val > 0 else "-∞"
+                                 else:
+                                     limit_approx_str = "DNE (Infinite oscillation or different infinities)"
+                            elif abs(left_val - right_val) < tolerance * (1 + abs(left_val)): # Relative tolerance
+                                limit_approx = (left_val + right_val) / 2
+                                # Refine approximation slightly
+                                if abs(limit_approx) < 1e-9: limit_approx = 0.0
+                                # Try to format as fraction if close
+                                try:
+                                     rational_approx = sympy.Rational(limit_approx).limit_denominator(1000)
+                                     if rational_approx.q == 1:
+                                         limit_approx_str = f"≈ {rational_approx.p}"
+                                     else:
+                                         limit_approx_str = f"≈ {rational_approx.p}/{rational_approx.q}"
+                                except (TypeError, ValueError):
+                                     limit_approx_str = f"≈ {limit_approx:.6g}" # Fallback to float formatting
+
+                                self._add_step("Numerical Result", f"Left/Right values are close. Approximated limit {limit_approx_str}")
+                            else:
+                                limit_approx_str = "DNE (Left/Right limits differ)"
+                                self._add_step("Numerical Result", f"Left ({left_val}) and Right ({right_val}) evaluations differ significantly.")
+
+                        except Exception as e:
+                            logger.error(f"Error during numerical check: {e}")
+                            self._add_step("Numerical Check Failed", f"An error occurred during numerical evaluation: {e}")
+                            limit_approx_str = "Error during numerical check"
+
+                    # Use numerical result as the final answer
+                    self.result = limit_approx_str
+                    # Add a note that this is a numerical approximation
+                    if "DNE" not in self.result and "Error" not in self.result and "∞" not in self.result:
+                         self._add_step("Conclusion", f"Using numerical approximation as fallback: {self.result}")
+                    else:
+                         self._add_step("Conclusion", f"Numerical fallback result: {self.result}")
+
+                 else:
+                     # Numerical fallback was not possible
+                     self._add_step("Fallback Failed", "Numerical fallback could not be attempted (initialization failed or limit point unsuitable).")
+                     self.result = "Could not determine limit (Symbolic failed, Numerical unavailable)"
+
+
+            # Set final result string if calculated symbolically
+            if limit_calculated and final_result_obj is not None:
+                 self.result = self._format_sympy_result(final_result_obj)
+            elif not limit_calculated and self.result == "Could not determine limit": # If numerical fallback didn't run or failed indeterminately
+                 # Check if a specific reason was logged
+                 found_reason = any(
+                     step["step"] == "Symbolic Limit Inconclusive" or
+                     "DNE" in step["explanation"] or
+                     "Error" in step["explanation"] or
+                     "failed" in step["explanation"].lower() or
+                     "Inconclusive" in step["step"]
+                     for step in self.steps
+                 )
+                 if not found_reason:
+                     self._add_step("Conclusion", "Failed to determine the limit using available symbolic and numerical methods.")
+                 self.result = "Could not determine limit"
+
+
+        except ValueError as e: # Catch parsing errors from __init__
+            logger.error(f"Input Error: {e}")
+            self._add_step("Error", f"Invalid input: {e}")
+            self.result = f"Error: Invalid Input ({e})"
+        except Exception as e:
+            logger.exception("Unexpected error during limit calculation") # Log full traceback
+            self._add_step("Error", f"An unexpected server error occurred: {e}")
+            self.result = "Error: Calculation Failed"
+
 
         return {"steps": self.steps, "result": self.result}
 
 
-# --- API Endpoint ---
-
-
-# --- API Endpoint ---
-
-
+# --- API Endpoint --- (Keep existing API endpoint code) ---
 class LimitRequest(BaseModel):
     expression: str
     variable: str = "x"  # Default variable
@@ -1247,13 +850,24 @@ class LimitResponse(BaseModel):
 @router.post("/calc_limit", response_model=LimitResponse)
 async def calculate_limit_endpoint(request: LimitRequest):
     """
-    Calculates the limit of an expression step-by-step.
+    Calculates the limit of an expression step-by-step using Sympy, with numerical fallback.
 
-    - **expression**: The mathematical expression (e.g., `(x^2 - 1)/(x - 1)`, `sin(x)/x`, `(1 + 1/n)^n`). Use standard functions like `sin`, `cos`, `ln`, `log` (base 10), `exp`, `sqrt`. Use `pi` and `e` for constants. Use `inf` or `∞` for infinity. Ensure explicit multiplication with `*`.
+    - **expression**: The mathematical expression (e.g., `(x^2 - 1)/(x - 1)`, `sin(x)/x`, `(1 + 1/n)**n`). Use standard functions like `sin`, `cos`, `ln` (natural log), `log` (base 10), `exp`, `sqrt`. Use `pi` and `e` for constants. Use `oo`, `inf` or `∞` for infinity. Ensure explicit multiplication with `*` where needed (e.g., `2*x` not `2x`). Powers use `**` or `^`.
     - **variable**: The variable in the expression (default: `x`).
-    - **tending_to**: The value the variable approaches (e.g., `1`, `0`, `inf`, `-inf`, `pi/2`).
+    - **tending_to**: The value the variable approaches (e.g., `1`, `0`, `oo`, `inf`, `-oo`, `-inf`, `pi/2`).
     """
     try:
+        # Input validation (basic)
+        if not request.expression or not request.variable or not request.tending_to:
+             raise ValueError("Expression, variable, and tending_to fields are required.")
+        # Basic check for potentially unsafe characters (though sympify is generally safe)
+        # Allow common math symbols like +, -, *, /, ^, (, )
+        # Disallow characters often used in injection attacks or causing parsing issues
+        # This is a basic check, sympify handles most math syntax safely.
+        if re.search(r"[;&|`$<>!#%\\\{\}\[\]~]", request.expression + request.variable + request.tending_to):
+             raise ValueError("Input contains potentially unsafe or unsupported characters.")
+
+
         calculator = LimitCalculator(
             expression=request.expression,
             variable=request.variable,
@@ -1262,15 +876,22 @@ async def calculate_limit_endpoint(request: LimitRequest):
         result_data = calculator.calculate()
         return LimitResponse(**result_data)
     except ValueError as e:
-        # Catch specific errors like invalid limit point
-        logger.error(f"Input Error: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+        # Catch specific errors like invalid input or parsing errors
+        logger.error(f"Input/Calculation ValueError: {e}")
+        # Provide a slightly more informative error message back to the user
+        error_detail = str(e)
+        if "Could not parse" in error_detail:
+            error_detail = "Failed to parse expression or limit point. Check syntax (e.g., use '*' for multiplication, '**' or '^' for powers)."
+        elif "Invalid input" in error_detail:
+             error_detail = "Invalid input provided. " + error_detail
+        raise HTTPException(status_code=400, detail=error_detail)
     except Exception as e:
         # Catch unexpected errors during calculation
         logger.exception("Unhandled exception in /calculate_limit")
-        raise HTTPException(status_code=500, detail=f"Internal server error: {e}")
+        # Avoid leaking internal error details unless necessary for debugging
+        raise HTTPException(status_code=500, detail="Internal server error during limit calculation.")
 
 
 @router.get("/limE", include_in_schema=False)
 async def root():
-    return {"message": "Welcome to the Limit Calculator API. POST to /calculate_limit"}
+    return {"message": "Welcome to the Limit Calculator API. POST to /calc_limit"}
