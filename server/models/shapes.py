@@ -132,3 +132,15 @@ class CircleDetailsResponse(BaseModel):
     radius: float
     input_equation: str
     normalized_equation: Optional[str] = None  # Optional: show the normalized form
+
+class circleWThreePointsInput(BaseModel):
+    p:coordinates
+    q:coordinates
+    r:coordinates
+    # center:coordinates
+
+class linegeneral(BaseModel):
+    "takes input for ax+by+x=0"
+    a:float = Field(default=0, description="X-coefficient")
+    b:float = Field(default=0, description="Y-coefficient")
+    c:float = Field(default=0, description="Constant term")

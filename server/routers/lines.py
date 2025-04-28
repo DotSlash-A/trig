@@ -425,3 +425,4 @@ def transform_to_intercept(req: TransformationsLine) -> str:
     y_denom=(-C/B)
     eqn=f"x/{x_denom} + y/{y_denom} = 1"
     return eqn.replace(" ", "")
+
