@@ -7,6 +7,7 @@ from routers import complexnums
 from routers import circles
 from routers import limits
 from routers import mylimits
+from routers import matrices
 
 app = FastAPI()
 
@@ -16,6 +17,7 @@ app.include_router(complexnums.router)
 app.include_router(circles.router)
 app.include_router(limits.router)
 app.include_router(mylimits.router)
+app.include_router(matrices.router)
 
 
 # Pydantic model for data validation
