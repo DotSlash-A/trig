@@ -14,8 +14,8 @@ from models.matrix_model import (
     MatrixFormulaInput,
     ConstructedMatrixResponse,
     MinorsCofactorsResponse,
-    MatrixInput,
-
+    AdjInvREsponse,
+    # MatrixInput,
 )
 
 # from models.matrix_model import MatrixInput
@@ -245,9 +245,9 @@ def compare_matrices_core(
     return True, "Matrices are identical.", dim_a_str, dim_b_str
 
 
-
-
-def construct_matrix_from_formula_conv(m:int, n:int, formula_str:str) -> List[List[float]]:
+def construct_matrix_from_formula_conv(
+    m: int, n: int, formula_str: str
+) -> List[List[float]]:
     """
     Constructs a matrix based on the provided formula.
 
@@ -272,7 +272,10 @@ def construct_matrix_from_formula_conv(m:int, n:int, formula_str:str) -> List[Li
 
     return constructed_matrix
 
-def construct_matrix_from_formula(m:int, n:int, formula_str:str) -> List[List[float]]:
+
+def construct_matrix_from_formula(
+    m: int, n: int, formula_str: str
+) -> List[List[float]]:
     """
     Constructs a matrix based on the provided formula.
 
@@ -284,9 +287,9 @@ def construct_matrix_from_formula(m:int, n:int, formula_str:str) -> List[List[fl
     Returns:
         Constructed matrix as a list of lists.
     """
-    i,j= symbols("i j")
+    i, j = symbols("i j")
     try:
-        allowed_globals={"__builtins__":None}
+        allowed_globals = {"__builtins__": None}
         parsed_formula = sympy.parse_expr(
             formula_str,
             local_dict={"i": i, "j": j},
@@ -305,10 +308,13 @@ def construct_matrix_from_formula(m:int, n:int, formula_str:str) -> List[List[fl
                     raise ValueError("Complex numbers are not supported.")
                 matrix[row_idx][col_idx] = float(value)
             except (TypeError, ValueError, ZeroDivisionError) as e:
-                raise ValueError(f"Error evaluating formula at ({current_i}, {current_j}): {e}")
+                raise ValueError(
+                    f"Error evaluating formula at ({current_i}, {current_j}): {e}"
+                )
             except Exception as e:
                 raise ValueError(f"Unexpected error: {e}")
     return matrix
+
 
 @router.post("/matrix_formula", response_model=ConstructedMatrixResponse)
 async def matrix_formula_endpoint(input_data: MatrixFormulaInput):
@@ -317,7 +323,7 @@ async def matrix_formula_endpoint(input_data: MatrixFormulaInput):
     and returns the constructed matrix.
     """
     try:
-        result_matrix= construct_matrix_from_formula(
+        result_matrix = construct_matrix_from_formula(
             m=input_data.m,
             n=input_data.n,
             formula_str=input_data.formula,
@@ -326,13 +332,11 @@ async def matrix_formula_endpoint(input_data: MatrixFormulaInput):
             rows=input_data.m,
             columns=input_data.n,
             formula_used=input_data.formula,
-            constructed_matrix=result_matrix
+            constructed_matrix=result_matrix,
         )
 
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-
-
 
 
 def add_matrices_core(
@@ -349,6 +353,8 @@ def add_matrices_core(
         The resulting matrix after addition.
     """
     return np.add(np.array(matrix_a), np.array(matrix_b)).tolist()
+
+
 @router.post("/add_matrices")
 async def add_matrices_endpoint(input_data: TwoMatrixInput):
     """
@@ -361,10 +367,14 @@ async def add_matrices_endpoint(input_data: TwoMatrixInput):
         dims_b = get_matrix_dimensions(input_data.matrix_b)
 
         if dims_a is None or dims_b is None:
-            raise HTTPException(status_code=400, detail="One or both inputs are not valid matrices.")
+            raise HTTPException(
+                status_code=400, detail="One or both inputs are not valid matrices."
+            )
 
         if dims_a != dims_b:
-            raise HTTPException(status_code=400, detail="Matrices have different dimensions.")
+            raise HTTPException(
+                status_code=400, detail="Matrices have different dimensions."
+            )
 
         # Call the core addition function
         result_matrix = add_matrices_core(input_data.matrix_a, input_data.matrix_b)
@@ -377,7 +387,8 @@ async def add_matrices_endpoint(input_data: TwoMatrixInput):
 
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    
+
+
 def multiply_matrix_with_scalar_core(
     matrix: List[List[Union[float, int]]], scalar: float
 ) -> List[List[float]]:
@@ -392,9 +403,12 @@ def multiply_matrix_with_scalar_core(
         The resulting matrix after multiplication.
     """
     return np.multiply(np.array(matrix), scalar).tolist()
+
+
 @router.post("/multiply_matrix_with_scalar")
 async def multiply_matrix_with_scalar_endpoint(
-    matrix: MatrixInputAPI, scalar: float = Query(..., description="Scalar value to multiply the matrix by.")
+    matrix: MatrixInputAPI,
+    scalar: float = Query(..., description="Scalar value to multiply the matrix by."),
 ):
     """
     API Endpoint: Takes a matrix and a scalar, validates them,
@@ -417,7 +431,7 @@ async def multiply_matrix_with_scalar_endpoint(
 
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    
+
 
 def multiply_matrices_core(
     matrix_a: List[List[Union[float, int]]], matrix_b: List[List[Union[float, int]]]
@@ -433,6 +447,8 @@ def multiply_matrices_core(
         The resulting matrix after multiplication.
     """
     return np.dot(np.array(matrix_a), np.array(matrix_b)).tolist()
+
+
 @router.post("/multiply_matrices")
 async def multiply_matrices_endpoint(input_data: TwoMatrixInput):
     """
@@ -445,10 +461,15 @@ async def multiply_matrices_endpoint(input_data: TwoMatrixInput):
         dims_b = get_matrix_dimensions(input_data.matrix_b)
 
         if dims_a is None or dims_b is None:
-            raise HTTPException(status_code=400, detail="One or both inputs are not valid matrices.")
+            raise HTTPException(
+                status_code=400, detail="One or both inputs are not valid matrices."
+            )
 
         if dims_a[1] != dims_b[0]:
-            raise HTTPException(status_code=400, detail="Matrices have incompatible dimensions for multiplication.")
+            raise HTTPException(
+                status_code=400,
+                detail="Matrices have incompatible dimensions for multiplication.",
+            )
 
         # Call the core multiplication function
         result_matrix = multiply_matrices_core(input_data.matrix_a, input_data.matrix_b)
@@ -461,10 +482,9 @@ async def multiply_matrices_endpoint(input_data: TwoMatrixInput):
 
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    
-def transpose_matrix_core(
-    matrix: List[List[Union[float, int]]]
-) -> List[List[float]]:
+
+
+def transpose_matrix_core(matrix: List[List[Union[float, int]]]) -> List[List[float]]:
     """
     Core function to transpose a matrix.
 
@@ -475,6 +495,8 @@ def transpose_matrix_core(
         The transposed matrix as a list of lists.
     """
     return np.transpose(np.array(matrix)).tolist()
+
+
 def find_skew_or_skew_symmetric(matrix: List[List[Union[float, int]]]) -> str:
     """
     Determines if a matrix is skew-symmetric or skew.
@@ -495,9 +517,12 @@ def find_skew_or_skew_symmetric(matrix: List[List[Union[float, int]]]) -> str:
     else:
         return "neither"
 
+
 # from here determinants start
-#first we finf the minors and cofactors of the matrix
-def calculate_minors_cofactors_core(matrix_list: List[List[Union[float, int]]]) -> Tuple[List[List[float]], List[List[float]], int]:
+# first we finf the minors and cofactors of the matrix
+def calculate_minors_cofactors_core(
+    matrix_list: List[List[Union[float, int]]],
+) -> Tuple[List[List[float]], List[List[float]], int]:
     """
     Calculates the matrix of minors and cofactors for a square matrix.
 
@@ -512,16 +537,16 @@ def calculate_minors_cofactors_core(matrix_list: List[List[Union[float, int]]]) 
         np.linalg.LinAlgError: If determinant calculation fails.
     """
     # 1. Validate and get dimension
-    element_flat,n = validate_and_prepare_matrix(matrix_list)
+    element_flat, n = validate_and_prepare_matrix(matrix_list)
 
     # Handle 1x1 matrix case (minors/cofactors usually require n>=2)
     # Determinant of a 0x0 matrix (minor of 1x1) is often defined as 1.
     # Cofactor C_11 = (-1)^(1+1) * M_11 = 1. Let's follow this convention.
     if n == 1:
-        return [[1.0]], [[1.0]], n # Minor is det(empty)=1, Cofactor is (-1)^2*1=1
+        return [[1.0]], [[1.0]], n  # Minor is det(empty)=1, Cofactor is (-1)^2*1=1
 
     # 2. Convert to NumPy array for easier manipulation
-    np_matrix = np.array(matrix_list, dtype=float) # Use float for determinant results
+    np_matrix = np.array(matrix_list, dtype=float)  # Use float for determinant results
 
     # 3. Initialize result matrices
     minors_matrix = [[0.0 for _ in range(n)] for _ in range(n)]
@@ -537,15 +562,16 @@ def calculate_minors_cofactors_core(matrix_list: List[List[Union[float, int]]]) 
 
             # 6. Calculate the Minor (determinant of the submatrix)
             minor_val = np.linalg.det(submatrix)
-            minors_matrix[r][c] = float(minor_val) # Store as standard float
+            minors_matrix[r][c] = float(minor_val)  # Store as standard float
 
             # 7. Calculate the Cofactor
             # Sign is determined by (-1)^(r+c) (using 0-based indices)
-            sign = (-1)**(r + c)
+            sign = (-1) ** (r + c)
             cofactor_val = sign * minor_val
-            cofactors_matrix[r][c] = float(cofactor_val) # Store as standard float
+            cofactors_matrix[r][c] = float(cofactor_val)  # Store as standard float
 
     return minors_matrix, cofactors_matrix, n
+
 
 @router.post("/minors_cofactors", response_model=MinorsCofactorsResponse)
 async def minors_cofactors_endpoint(input_data: DetInput):
@@ -559,11 +585,13 @@ async def minors_cofactors_endpoint(input_data: DetInput):
 
         # 2. Validate and prepare data using the reusable function
         # This function ensures it's square and returns the flat list + dimension
-        elements_flat, n = validate_and_prepare_matrix(matrix_list)
+        _, n = validate_and_prepare_matrix(matrix_list)
 
         # 3. Call the core calculation function (the part you'd translate)
-        minors_matrix, cofactors_matrix, n = calculate_minors_cofactors_core(matrix_list)
-        det=np.linalg.det(np.array(matrix_list))
+        minors_matrix, cofactors_matrix, n = calculate_minors_cofactors_core(
+            matrix_list
+        )
+        det = np.linalg.det(np.array(matrix_list))
 
         return MinorsCofactorsResponse(
             input_matrix=matrix_list,
@@ -575,60 +603,48 @@ async def minors_cofactors_endpoint(input_data: DetInput):
 
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    
 
 
+def calculate_adj_inv_core(
+    matrix_list: List[List[Union[float, int]]],
+) -> Tuple[List[List[float]], Optional[List[List[float]]], float, bool, int]:
+    """
+    Calculates the adjoint, inverse, determinant, and dimension of a square matrix.
 
+    Args:
+        matrix_list: The input square matrix as a list of lists.
 
+    Returns:
+        Tuple: (adjoint_matrix, inverse_matrix|None, determinant, is_invertible, dimension)
 
+    Raises:
+        ValueError: If matrix is not square or dimension < 1.
+        np.linalg.LinAlgError: If determinant calculation fails.
+    """
+    # 1. Get Cofactors and Dimension (leverages existing validation and calculation)
+    # We don't directly need the minors matrix here, just cofactors
+    _, cofactors_matrix, n = calculate_minors_cofactors_core(matrix_list)
 
+    # 2. Calculate Adjoint (Transpose of Cofactor Matrix)
+    # Convert cofactor list-of-lists to NumPy array for easy transpose
+    np_cofactors = np.array(cofactors_matrix, dtype=float)
+    np_adjoint = np_cofactors.T  # Simple transpose operation
+    adjoint_list = np_adjoint.tolist()  # Convert back to list of lists for output
 
+    # 3. Calculate Determinant of the original matrix
+    np_matrix = np.array(matrix_list, dtype=float)
+    determinant = np.linalg.det(np_matrix)
 
+    # 4. Check if Invertible (Determinant != 0)
+    # Use np.isclose for robust floating-point comparison
+    if np.isclose(determinant, 0):
+        is_invertible = False
+        inverse_list = None  # No inverse if determinant is zero
+    else:
+        is_invertible = True
+        # 5. Calculate Inverse = (1/det) * Adjoint
+        inv_scalar = 1.0 / determinant
+        np_inverse = inv_scalar * np_adjoint  # Element-wise multiplication
+        inverse_list = np_inverse.tolist()  # Convert back to list of lists
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# @router.post("/construct_matrices")
-# def construct_matrices(matrix_a: MatrixInput, matrix_b: MatrixInput):
-#     # Validate dimensions
-#     if len(matrix_a.numbers) != matrix_a.dimensions[0] * matrix_a.dimensions[1]:
-#         raise HTTPException(
-#             status_code=400, detail="Matrix A numbers do not match dimensions"
-#         )
-#     if len(matrix_b.numbers) != matrix_b.dimensions[0] * matrix_b.dimensions[1]:
-#         raise HTTPException(
-#             status_code=400, detail="Matrix B numbers do not match dimensions"
-#         )
-
-#     # Construct matrices
-#     a = np.array(matrix_a.numbers).reshape(matrix_a.dimensions)
-#     b = np.array(matrix_b.numbers).reshape(matrix_b.dimensions)
-
-#     # Check element-wise equality
-#     if a.shape != b.shape:
-#         return {"equal": False, "reason": "Matrices have different shapes"}
-
-#     equality_matrix = (a == b).tolist()
-
-#     return {
-#         "matrix_a": a.tolist(),
-#         "matrix_b": b.tolist(),
-#         "element_wise_equality": equality_matrix,
-#     }
+    return adjoint_list, inverse_list, float(determinant), is_invertible, n
