@@ -52,3 +52,14 @@ class MinorsCofactorsResponse(BaseModel):
     matrix_of_minors: List[List[float]] = Field(..., description="Matrix of minors calculated from the input matrix.")
     matrix_of_cofactors: List[List[float]] = Field(..., description="Matrix of cofactors calculated from the input matrix.")
     determinant: Optional[float] = Field(None, description="Determinant of the original matrix, if applicable.")
+
+class AdjInvREsponse(BaseModel):
+    input_matrix: List[List[Union[float, int]]] = Field(..., description="The original matrix provided.")
+    dimensions: str = Field(..., description="Dimensions of the matrix (e.g., '3x4').")
+    determinant: Optional[float] = Field(None, description="Determinant of the original matrix, if applicable.")
+    is_invertible: bool = Field(..., description="True if the matrix is invertible, False otherwise.")
+    adjoint_matrix: Optional[List[List[float]]] = Field(None, description="Adjoint matrix, if applicable.")
+    inverse_matrix: Optional[List[List[float]]] = Field(None, description="Inverse matrix, if applicable.")
+
+    
+
