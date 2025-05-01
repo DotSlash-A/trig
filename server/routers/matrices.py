@@ -14,7 +14,7 @@ from models.matrix_model import (
     MatrixFormulaInput,
     ConstructedMatrixResponse,
     MinorsCofactorsResponse,
-    AdjInvREsponse,
+    AdjInvResponse,
     # MatrixInput,
 )
 
@@ -648,3 +648,39 @@ def calculate_adj_inv_core(
         inverse_list = np_inverse.tolist()  # Convert back to list of lists
 
     return adjoint_list, inverse_list, float(determinant), is_invertible, n
+
+
+
+
+@router.post("/adjoint-inverse", response_model=AdjInvResponse)
+# Or @router.post("/adjoint-inverse", response_model=AdjInvResponse)
+async def get_adj_inv_endpoint(input_data: MatrixInputAPI):
+    """
+    Calculates the determinant, adjoint matrix, and inverse matrix (if it exists)
+    for a given square matrix.
+    """
+    try:
+        # Call the core logic function
+        adj, inv, det, is_inv, dim = calculate_adj_inv_core(input_data.matrix)
+
+        # Return the successful response
+        return AdjInvResponse(
+            input_matrix=input_data.matrix,
+            dimension=dim,
+            determinant=det,
+            is_invertible=is_inv,
+            adjoint_matrix=adj,
+            inverse_matrix=inv # This will be None if is_inv is False
+        )
+
+    except ValueError as e:
+        # Catch validation errors
+        raise HTTPException(status_code=400, detail=str(e))
+    except np.linalg.LinAlgError as e:
+        # Catch determinant calculation errors from NumPy
+        # This might occur during cofactor calculation or the final determinant check
+        raise HTTPException(status_code=500, detail=f"Linear algebra computation error: {e}")
+    except Exception as e:
+        # Catch any other unexpected errors
+        print(f"Unexpected server error: {e}") # Basic logging
+        raise HTTPException(status_code=500, detail="An internal server error occurred.")

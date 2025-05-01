@@ -53,7 +53,7 @@ class MinorsCofactorsResponse(BaseModel):
     matrix_of_cofactors: List[List[float]] = Field(..., description="Matrix of cofactors calculated from the input matrix.")
     determinant: Optional[float] = Field(None, description="Determinant of the original matrix, if applicable.")
 
-class AdjInvREsponse(BaseModel):
+class AdjInvResponse(BaseModel):
     input_matrix: List[List[Union[float, int]]] = Field(..., description="The original matrix provided.")
     dimensions: str = Field(..., description="Dimensions of the matrix (e.g., '3x4').")
     determinant: Optional[float] = Field(None, description="Determinant of the original matrix, if applicable.")
