@@ -13,6 +13,8 @@ from models.matrix_model import (
     MatrixEqualityResponse,
     MatrixFormulaInput,
     ConstructedMatrixResponse,
+    MinorsCofactorsResponse,
+    MatrixInput,
 
 )
 
@@ -329,6 +331,263 @@ async def matrix_formula_endpoint(input_data: MatrixFormulaInput):
 
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+
+
+def add_matrices_core(
+    matrix_a: List[List[Union[float, int]]], matrix_b: List[List[Union[float, int]]]
+) -> List[List[float]]:
+    """
+    Core function to add two matrices element-wise.
+
+    Args:
+        matrix_a: First matrix as a list of lists.
+        matrix_b: Second matrix as a list of lists.
+
+    Returns:
+        The resulting matrix after addition.
+    """
+    return np.add(np.array(matrix_a), np.array(matrix_b)).tolist()
+@router.post("/add_matrices")
+async def add_matrices_endpoint(input_data: TwoMatrixInput):
+    """
+    API Endpoint: Takes two matrices, validates them, adds them,
+    and returns the resulting matrix.
+    """
+    try:
+        # Validate dimensions
+        dims_a = get_matrix_dimensions(input_data.matrix_a)
+        dims_b = get_matrix_dimensions(input_data.matrix_b)
+
+        if dims_a is None or dims_b is None:
+            raise HTTPException(status_code=400, detail="One or both inputs are not valid matrices.")
+
+        if dims_a != dims_b:
+            raise HTTPException(status_code=400, detail="Matrices have different dimensions.")
+
+        # Call the core addition function
+        result_matrix = add_matrices_core(input_data.matrix_a, input_data.matrix_b)
+
+        return {
+            "matrix_a": input_data.matrix_a,
+            "matrix_b": input_data.matrix_b,
+            "result_matrix": result_matrix,
+        }
+
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    
+def multiply_matrix_with_scalar_core(
+    matrix: List[List[Union[float, int]]], scalar: float
+) -> List[List[float]]:
+    """
+    Core function to multiply a matrix by a scalar.
+
+    Args:
+        matrix: The matrix as a list of lists.
+        scalar: The scalar value.
+
+    Returns:
+        The resulting matrix after multiplication.
+    """
+    return np.multiply(np.array(matrix), scalar).tolist()
+@router.post("/multiply_matrix_with_scalar")
+async def multiply_matrix_with_scalar_endpoint(
+    matrix: MatrixInputAPI, scalar: float = Query(..., description="Scalar value to multiply the matrix by.")
+):
+    """
+    API Endpoint: Takes a matrix and a scalar, validates them,
+    multiplies the matrix by the scalar, and returns the resulting matrix.
+    """
+    try:
+        # Validate dimensions
+        dims = get_matrix_dimensions(matrix.matrix)
+        if dims is None:
+            raise HTTPException(status_code=400, detail="Input is not a valid matrix.")
+
+        # Call the core multiplication function
+        result_matrix = multiply_matrix_with_scalar_core(matrix.matrix, scalar)
+
+        return {
+            "input_matrix": matrix.matrix,
+            "scalar": scalar,
+            "result_matrix": result_matrix,
+        }
+
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    
+
+def multiply_matrices_core(
+    matrix_a: List[List[Union[float, int]]], matrix_b: List[List[Union[float, int]]]
+) -> List[List[float]]:
+    """
+    Core function to multiply two matrices.
+
+    Args:
+        matrix_a: First matrix as a list of lists.
+        matrix_b: Second matrix as a list of lists.
+
+    Returns:
+        The resulting matrix after multiplication.
+    """
+    return np.dot(np.array(matrix_a), np.array(matrix_b)).tolist()
+@router.post("/multiply_matrices")
+async def multiply_matrices_endpoint(input_data: TwoMatrixInput):
+    """
+    API Endpoint: Takes two matrices, validates them, multiplies them,
+    and returns the resulting matrix.
+    """
+    try:
+        # Validate dimensions
+        dims_a = get_matrix_dimensions(input_data.matrix_a)
+        dims_b = get_matrix_dimensions(input_data.matrix_b)
+
+        if dims_a is None or dims_b is None:
+            raise HTTPException(status_code=400, detail="One or both inputs are not valid matrices.")
+
+        if dims_a[1] != dims_b[0]:
+            raise HTTPException(status_code=400, detail="Matrices have incompatible dimensions for multiplication.")
+
+        # Call the core multiplication function
+        result_matrix = multiply_matrices_core(input_data.matrix_a, input_data.matrix_b)
+
+        return {
+            "matrix_a": input_data.matrix_a,
+            "matrix_b": input_data.matrix_b,
+            "result_matrix": result_matrix,
+        }
+
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    
+def transpose_matrix_core(
+    matrix: List[List[Union[float, int]]]
+) -> List[List[float]]:
+    """
+    Core function to transpose a matrix.
+
+    Args:
+        matrix: The matrix as a list of lists.
+
+    Returnns:
+        The transposed matrix as a list of lists.
+    """
+    return np.transpose(np.array(matrix)).tolist()
+def find_skew_or_skew_symmetric(matrix: List[List[Union[float, int]]]) -> str:
+    """
+    Determines if a matrix is skew-symmetric or skew.
+
+    Args:
+        matrix: The matrix as a list of lists.
+
+    Returns:
+        "skew-symmetric" if the matrix is skew-symmetric,
+        "skew" if the matrix is skew,
+        "neither" otherwise.
+    """
+    transposed_matrix = transpose_matrix_core(matrix)
+    if np.array_equal(np.array(matrix), -np.array(transposed_matrix)):
+        return "skew-symmetric"
+    elif np.array_equal(np.array(matrix), np.array(transposed_matrix)):
+        return "skew"
+    else:
+        return "neither"
+
+# from here determinants start
+#first we finf the minors and cofactors of the matrix
+def calculate_minors_cofactors_core(matrix_list: List[List[Union[float, int]]]) -> Tuple[List[List[float]], List[List[float]], int]:
+    """
+    Calculates the matrix of minors and cofactors for a square matrix.
+
+    Args:
+        matrix_list: The input square matrix as a list of lists.
+
+    Returns:
+        Tuple: (matrix_of_minors, matrix_of_cofactors, dimension)
+
+    Raises:
+        ValueError: If matrix is not square or dimension < 1.
+        np.linalg.LinAlgError: If determinant calculation fails.
+    """
+    # 1. Validate and get dimension
+    element_flat,n = validate_and_prepare_matrix(matrix_list)
+
+    # Handle 1x1 matrix case (minors/cofactors usually require n>=2)
+    # Determinant of a 0x0 matrix (minor of 1x1) is often defined as 1.
+    # Cofactor C_11 = (-1)^(1+1) * M_11 = 1. Let's follow this convention.
+    if n == 1:
+        return [[1.0]], [[1.0]], n # Minor is det(empty)=1, Cofactor is (-1)^2*1=1
+
+    # 2. Convert to NumPy array for easier manipulation
+    np_matrix = np.array(matrix_list, dtype=float) # Use float for determinant results
+
+    # 3. Initialize result matrices
+    minors_matrix = [[0.0 for _ in range(n)] for _ in range(n)]
+    cofactors_matrix = [[0.0 for _ in range(n)] for _ in range(n)]
+
+    # 4. Iterate through each element of the matrix
+    for r in range(n):  # 0-based row index
+        for c in range(n):  # 0-based column index
+
+            # 5. Create the submatrix by deleting row r and column c
+            # np.delete(array, index, axis)
+            submatrix = np.delete(np.delete(np_matrix, r, axis=0), c, axis=1)
+
+            # 6. Calculate the Minor (determinant of the submatrix)
+            minor_val = np.linalg.det(submatrix)
+            minors_matrix[r][c] = float(minor_val) # Store as standard float
+
+            # 7. Calculate the Cofactor
+            # Sign is determined by (-1)^(r+c) (using 0-based indices)
+            sign = (-1)**(r + c)
+            cofactor_val = sign * minor_val
+            cofactors_matrix[r][c] = float(cofactor_val) # Store as standard float
+
+    return minors_matrix, cofactors_matrix, n
+
+@router.post("/minors_cofactors", response_model=MinorsCofactorsResponse)
+async def minors_cofactors_endpoint(input_data: DetInput):
+    """
+    API Endpoint: Takes a matrix, validates it, calculates the minors and cofactors,
+    and returns the resulting matrices.
+    """
+    try:
+        # 1. Get the nested list from the API input model
+        matrix_list = input_data.matrix
+
+        # 2. Validate and prepare data using the reusable function
+        # This function ensures it's square and returns the flat list + dimension
+        elements_flat, n = validate_and_prepare_matrix(matrix_list)
+
+        # 3. Call the core calculation function (the part you'd translate)
+        minors_matrix, cofactors_matrix, n = calculate_minors_cofactors_core(matrix_list)
+        det=np.linalg.det(np.array(matrix_list))
+
+        return MinorsCofactorsResponse(
+            input_matrix=matrix_list,
+            dimensions=f"{n}x{n}",
+            matrix_of_minors=minors_matrix,
+            matrix_of_cofactors=cofactors_matrix,
+            determinant=det,  # Determinant not calculated here, but can be added if needed
+        )
+
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

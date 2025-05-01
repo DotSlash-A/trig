@@ -45,3 +45,10 @@ class ConstructedMatrixResponse(BaseModel):
     columns: int = Field(..., description="Number of columns specified.")
     formula_used: str = Field(..., description="The formula provided in the input.")
     constructed_matrix: List[List[float]] = Field(..., description="The resulting matrix calculated using the formula.")
+
+class MinorsCofactorsResponse(BaseModel):
+    input_matrix: List[List[Union[float, int]]] = Field(..., description="The original matrix provided.")
+    dimensions: str = Field(..., description="Dimensions of the matrix (e.g., '3x4').")
+    matrix_of_minors: List[List[float]] = Field(..., description="Matrix of minors calculated from the input matrix.")
+    matrix_of_cofactors: List[List[float]] = Field(..., description="Matrix of cofactors calculated from the input matrix.")
+    determinant: Optional[float] = Field(None, description="Determinant of the original matrix, if applicable.")
