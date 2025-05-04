@@ -10,6 +10,7 @@ from routers import matrices
 from routers import finelimits
 from routers import derivatives
 from routers import integration
+from routers import ap
 
 app = FastAPI()
 
@@ -22,6 +23,7 @@ app.include_router(matrices.router)
 app.include_router(finelimits.router)
 app.include_router(derivatives.router)
 app.include_router(integration.router)
+app.include_router(ap.router)
 
 
 # Pydantic model for data validation
