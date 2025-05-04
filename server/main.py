@@ -5,8 +5,7 @@ from routers import transformations
 from routers import lines
 from routers import complexnums
 from routers import circles
-from routers import limits
-from routers import mylimits
+
 from routers import matrices
 from routers import finelimits
 from routers import derivatives
@@ -18,8 +17,7 @@ app.include_router(transformations.router)
 app.include_router(lines.router)
 app.include_router(complexnums.router)
 app.include_router(circles.router)
-app.include_router(limits.router)
-app.include_router(mylimits.router)
+
 app.include_router(matrices.router)
 app.include_router(finelimits.router)
 app.include_router(derivatives.router)
