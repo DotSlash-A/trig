@@ -11,8 +11,13 @@ from typing import List, Union, Dict, Any, Tuple, Optional
 import sympy
 import traceback  # For more detailed error logging if needed
 
+# from sympy.parsing.sympy_parser import parse_expr, standard_transformations, implicit_multiplication_application
+# from sympy import sympify, symbols, limit, diff, solve, Eq, N, oo, Interval as SympyInterval, solveset, Abs, atan, pi, idiff, Function, Derivative
 
 # router = APIRouter()
+
+from models.derivaives_model import *
+router = APIRouter(prefix="/differentiate", tags=["Differentiation"])
 
 
 # --- Pydantic Models ---
@@ -211,8 +216,6 @@ def generate_differentiation_steps(
 # --- FastAPI Setup ---
 # app = FastAPI(title="Symbolic Differentiation API")
 # Or use a router
-router = APIRouter(prefix="/differentiate", tags=["Differentiation"])
-
 
 # --- API Endpoints ---
 
@@ -286,6 +289,19 @@ async def differentiate_steps(input_data: DiffInput):
             status_code=500,
             detail="An internal server error occurred during step generation.",
         )
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 # --- Add router to app if using a router ---
