@@ -116,7 +116,7 @@ def sympy_to_str(sympy_obj):
     # Handle undefined cases specifically if needed
     if isinstance(
         sympy_obj,
-        (sympy.zooKind, type(sympy.zoo)),
+        (sympy.zoo, type(sympy.zoo)),
     ):
         return "undefined"
 
@@ -253,7 +253,6 @@ router_tangents_normals = APIRouter(
     prefix="/calculus/tangents-normals", tags=["Tangents & Normals"]
 )
 router_monotonicity = APIRouter(prefix="/calculus/monotonicity", tags=["Monotonicity"])
-
 
 
 # --- Routers ---
@@ -853,105 +852,105 @@ async def check_continuity_interval(request: ContinuityIntervalRequest):
 #         )
 
 
-@router_continuity.post("/check-at-point", response_model=ContinuityCheckResponse)
-async def check_continuity_at_point(request: ContinuityCheckRequest):
-    """Checks if a function is continuous at a given point."""
-    x = symbols(request.function_definition.variable)
-    point = request.point
-    func_def = request.function_definition
-    lhl, rhl, f_at_point = None, None, None
-    lhl_expr, rhl_expr, f_expr = None, None, None
-    reason = []
+# @router_continuity.post("/check-at-point", response_model=ContinuityCheckResponse)
+# async def check_continuity_at_point(request: ContinuityCheckRequest):
+#     """Checks if a function is continuous at a given point."""
+#     x = symbols(request.function_definition.variable)
+#     point = request.point
+#     func_def = request.function_definition
+#     lhl, rhl, f_at_point = None, None, None
+#     lhl_expr, rhl_expr, f_expr = None, None, None
+#     reason = []
 
-    try:
-        # Determine expressions for LHL, RHL, f(a)
-        if func_def.type == "single":
-            expr = safe_parse_expr(func_def.expression, {func_def.variable: x})
-            lhl_expr, rhl_expr, f_expr = expr, expr, expr
-        elif func_def.type == "piecewise":
-            # This condition parsing is heuristic and may need refinement
-            lhl_expr = get_relevant_expr(func_def, point, "lhl")
-            rhl_expr = get_relevant_expr(func_def, point, "rhl")
-            f_expr = get_relevant_expr(func_def, point, "point")
-        else:
-            raise HTTPException(
-                status_code=400, detail="Invalid function definition type"
-            )
+#     try:
+#         # Determine expressions for LHL, RHL, f(a)
+#         if func_def.type == "single":
+#             expr = safe_parse_expr(func_def.expression, {func_def.variable: x})
+#             lhl_expr, rhl_expr, f_expr = expr, expr, expr
+#         elif func_def.type == "piecewise":
+#             # This condition parsing is heuristic and may need refinement
+#             lhl_expr = get_relevant_expr(func_def, point, "lhl")
+#             rhl_expr = get_relevant_expr(func_def, point, "rhl")
+#             f_expr = get_relevant_expr(func_def, point, "point")
+#         else:
+#             raise HTTPException(
+#                 status_code=400, detail="Invalid function definition type"
+#             )
 
-        # Calculate f(a)
-        try:
-            f_at_point = f_expr.subs(x, point)
-            # Check for undefined results like 1/0 -> zoo
-            if f_at_point.has(oo, -oo, sympy.zoo, sympy.nan):
-                f_at_point = sympy.zoo
-                reason.append(f"Function is undefined at x={point}.")
-            elif not f_at_point.is_real:  # Handle complex results if not expected
-                pass  # Allow complex numbers for now
+#         # Calculate f(a)
+#         try:
+#             f_at_point = f_expr.subs(x, point)
+#             # Check for undefined results like 1/0 -> zoo
+#             if f_at_point.has(oo, -oo, sympy.zoo, sympy.nan):
+#                 f_at_point = sympy.zoo
+#                 reason.append(f"Function is undefined at x={point}.")
+#             elif not f_at_point.is_real:  # Handle complex results if not expected
+#                 pass  # Allow complex numbers for now
 
-        except (TypeError, ValueError, Exception) as e:
-            # Could be undefined (e.g., log(-1)), division by zero handled above
-            f_at_point = sympy.zoo
-            reason.append(f"Could not evaluate function at x={point}: {e}")
+#         except (TypeError, ValueError, Exception) as e:
+#             # Could be undefined (e.g., log(-1)), division by zero handled above
+#             f_at_point = sympy.zoo
+#             reason.append(f"Could not evaluate function at x={point}: {e}")
 
-        # Calculate LHL
-        try:
-            lhl = limit(lhl_expr, x, point, dir="-")
-            if not lhl.is_real:  # Allow complex numbers but note if infinite/nan
-                if lhl.has(oo, -oo, sympy.zoo, sympy.nan):
-                    reason.append(f"LHL is infinite or undefined.")
-        except Exception as e:
-            lhl = sympy.zoo  # Indicate limit computation failed
-            reason.append(f"Could not compute LHL: {e}")
+#         # Calculate LHL
+#         try:
+#             lhl = limit(lhl_expr, x, point, dir="-")
+#             if not lhl.is_real:  # Allow complex numbers but note if infinite/nan
+#                 if lhl.has(oo, -oo, sympy.zoo, sympy.nan):
+#                     reason.append(f"LHL is infinite or undefined.")
+#         except Exception as e:
+#             lhl = sympy.zoo  # Indicate limit computation failed
+#             reason.append(f"Could not compute LHL: {e}")
 
-        # Calculate RHL
-        try:
-            rhl = limit(rhl_expr, x, point, dir="+")
-            if not rhl.is_real:
-                if rhl.has(oo, -oo, sympy.zoo, sympy.nan):
-                    reason.append(f"RHL is infinite or undefined.")
-        except Exception as e:
-            rhl = sympy.zoo  # Indicate limit computation failed
-            reason.append(f"Could not compute RHL: {e}")
+#         # Calculate RHL
+#         try:
+#             rhl = limit(rhl_expr, x, point, dir="+")
+#             if not rhl.is_real:
+#                 if rhl.has(oo, -oo, sympy.zoo, sympy.nan):
+#                     reason.append(f"RHL is infinite or undefined.")
+#         except Exception as e:
+#             rhl = sympy.zoo  # Indicate limit computation failed
+#             reason.append(f"Could not compute RHL: {e}")
 
-        # Check conditions
-        is_cont = False
-        if f_at_point == sympy.zoo:
-            reason.append(f"f({point}) is undefined.")
-        elif lhl == sympy.zoo or rhl == sympy.zoo:
-            reason.append(
-                "Limit does not exist (LHL or RHL calculation failed or is undefined/infinite)."
-            )
-        elif lhl != rhl:
-            reason.append(
-                f"Limit does not exist (LHL={sympy_to_str(lhl)} != RHL={sympy_to_str(rhl)})."
-            )
-        elif lhl != f_at_point:  # If LHL==RHL, check against f(a)
-            reason.append(
-                f"Limit ({sympy_to_str(lhl)}) exists but is not equal to f({point}) ({sympy_to_str(f_at_point)})."
-            )
-        else:
-            # All conditions met
-            is_cont = True
-            reason.append(
-                f"LHL ({sympy_to_str(lhl)}) = RHL ({sympy_to_str(rhl)}) = f({point}) ({sympy_to_str(f_at_point)}). Function is continuous."
-            )
+#         # Check conditions
+#         is_cont = False
+#         if f_at_point == sympy.zoo:
+#             reason.append(f"f({point}) is undefined.")
+#         elif lhl == sympy.zoo or rhl == sympy.zoo:
+#             reason.append(
+#                 "Limit does not exist (LHL or RHL calculation failed or is undefined/infinite)."
+#             )
+#         elif lhl != rhl:
+#             reason.append(
+#                 f"Limit does not exist (LHL={sympy_to_str(lhl)} != RHL={sympy_to_str(rhl)})."
+#             )
+#         elif lhl != f_at_point:  # If LHL==RHL, check against f(a)
+#             reason.append(
+#                 f"Limit ({sympy_to_str(lhl)}) exists but is not equal to f({point}) ({sympy_to_str(f_at_point)})."
+#             )
+#         else:
+#             # All conditions met
+#             is_cont = True
+#             reason.append(
+#                 f"LHL ({sympy_to_str(lhl)}) = RHL ({sympy_to_str(rhl)}) = f({point}) ({sympy_to_str(f_at_point)}). Function is continuous."
+#             )
 
-        return ContinuityCheckResponse(
-            point=point,
-            lhl=sympy_to_str(lhl),
-            rhl=sympy_to_str(rhl),
-            f_at_point=sympy_to_str(f_at_point),
-            is_continuous=is_cont,
-            reason=" ".join(reason),
-        )
+#         return ContinuityCheckResponse(
+#             point=point,
+#             lhl=sympy_to_str(lhl),
+#             rhl=sympy_to_str(rhl),
+#             f_at_point=sympy_to_str(f_at_point),
+#             is_continuous=is_cont,
+#             reason=" ".join(reason),
+#         )
 
-    except HTTPException as he:
-        raise he  # Re-raise HTTP exceptions
-    except Exception as e:
-        # Catch-all for other unexpected errors during setup/parsing
-        raise HTTPException(
-            status_code=500, detail=f"An unexpected error occurred: {e}"
-        )
+#     except HTTPException as he:
+#         raise he  # Re-raise HTTP exceptions
+#     except Exception as e:
+#         # Catch-all for other unexpected errors during setup/parsing
+#         raise HTTPException(
+#             status_code=500, detail=f"An unexpected error occurred: {e}"
+#         )
 
 
 # NEW: find-constants (Differentiability) - Placeholder
@@ -972,6 +971,121 @@ async def find_differentiability_constants(request: DifferentiabilityConstantsRe
         status_code=501,
         detail="Finding constants for differentiability not fully implemented yet.",
     )
+
+
+@router_differentiability.post(
+    "/check-at-point", response_model=DifferentiabilityCheckResponse
+)
+async def check_differentiability_at_point(request: DifferentiabilityCheckRequest):
+    """Checks if a function is differentiable at a given point."""
+    x = symbols(request.function_definition.variable)
+    h = symbols("h", real=True, positive=True)  # Small change for derivative definition
+    point = request.point
+    func_def = request.function_definition
+    lhd, rhd = None, None
+    is_differentiable = False
+    derivative_value = None
+    reason = []
+
+    # 1. Check Continuity First
+    continuity_req = ContinuityCheckRequest(function_definition=func_def, point=point)
+    try:
+        continuity_resp = await check_continuity_at_point(continuity_req)
+    except HTTPException as he:
+        # If continuity check itself failed badly
+        return DifferentiabilityCheckResponse(
+            point=point,
+            continuity_check=ContinuityCheckResponse(
+                point=point,
+                reason=f"Continuity check failed: {he.detail}",
+                is_continuous=False,
+            ),
+            is_differentiable=False,
+            reason=f"Cannot check differentiability because continuity check failed: {he.detail}",
+        )
+
+    if not continuity_resp.is_continuous:
+        return DifferentiabilityCheckResponse(
+            point=point,
+            continuity_check=continuity_resp,
+            lhd=None,
+            rhd=None,
+            is_differentiable=False,
+            derivative_value=None,
+            reason=f"Function is not continuous at x={point}, therefore not differentiable. {continuity_resp.reason}",
+        )
+
+    # 2. If Continuous, check LHD and RHD
+    try:
+        # Need the expression at the point and nearby
+        f_expr_point = get_relevant_expr(func_def, point, "point")
+        f_at_point = f_expr_point.subs(x, point)
+
+        # For limits, need expressions potentially spanning across the point definition change
+        # Use the appropriate pieces for (f(a+h)-f(a))/h as h->0- and h->0+
+        # This requires careful handling of the function definition near 'point'
+
+        # Simplistic approach: use LHL/RHL relevant expressions for the f(a+h) part
+        lhl_expr = get_relevant_expr(func_def, point, "lhl")
+        rhl_expr = get_relevant_expr(func_def, point, "rhl")
+
+        # LHD: limit h->0+ of (f(a) - f(a-h)) / h --- OR --- limit h->0- of (f(a+h)-f(a))/h
+        # Using limit h->0- of (f(a+h)-f(a))/h seems more standard with sympy dir='-'
+        lhd_limit_expr = (lhl_expr.subs(x, point + h) - f_at_point) / h
+        lhd = limit(lhd_limit_expr, h, 0, dir="-")
+
+        # RHD: limit h->0+ of (f(a+h) - f(a)) / h
+        rhd_limit_expr = (rhl_expr.subs(x, point + h) - f_at_point) / h
+        rhd = limit(rhd_limit_expr, h, 0, dir="+")
+
+        # Check LHD/RHD results
+        if (
+            lhd == sympy.zoo
+            or rhd == sympy.zoo
+            or lhd.has(oo, -oo, sympy.zoo, sympy.nan)
+            or rhd.has(oo, -oo, sympy.zoo, sympy.nan)
+        ):
+            reason.append("LHD or RHD could not be computed or is infinite/undefined.")
+            is_differentiable = False
+        elif lhd != rhd:
+            reason.append(
+                f"Function is continuous, but LHD ({sympy_to_str(lhd)}) != RHD ({sympy_to_str(rhd)})."
+            )
+            is_differentiable = False
+        else:
+            # LHD == RHD and finite
+            is_differentiable = True
+            derivative_value = lhd  # or rhd
+            reason.append(
+                f"Function is continuous and LHD ({sympy_to_str(lhd)}) = RHD ({sympy_to_str(rhd)})."
+            )
+
+        return DifferentiabilityCheckResponse(
+            point=point,
+            continuity_check=continuity_resp,
+            lhd=sympy_to_str(lhd),
+            rhd=sympy_to_str(rhd),
+            is_differentiable=is_differentiable,
+            derivative_value=sympy_to_str(derivative_value),
+            reason=" ".join(reason),
+        )
+
+    except HTTPException as he:
+        # Handle errors from get_relevant_expr
+        return DifferentiabilityCheckResponse(
+            point=point,
+            continuity_check=continuity_resp,
+            is_differentiable=False,
+            reason=f"Failed during differentiability check setup: {he.detail}",
+        )
+    except Exception as e:
+        # Catch-all for limit calculation errors etc.
+        return DifferentiabilityCheckResponse(
+            point=point,
+            continuity_check=continuity_resp,
+            is_differentiable=False,
+            reason=f"An unexpected error occurred during LHD/RHD calculation: {e}",
+        )
 
 
 # --- Rate Measure Routes ---
