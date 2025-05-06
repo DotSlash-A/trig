@@ -16,7 +16,7 @@ import traceback  # For more detailed error logging if needed
 
 # router = APIRouter()
 
-from models.derivaives_model import *
+
 router = APIRouter(prefix="/differentiate", tags=["Differentiation"])
 
 
@@ -289,19 +289,6 @@ async def differentiate_steps(input_data: DiffInput):
             status_code=500,
             detail="An internal server error occurred during step generation.",
         )
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 # --- Add router to app if using a router ---

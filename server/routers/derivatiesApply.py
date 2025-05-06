@@ -27,7 +27,7 @@ from sympy import (
 )
 
 
-from models.derivaives_model import *
+from models.derivatives_model import *
 
 
 # router = APIRouter(prefix="/applyderivatives", tags=["ApplyDifferentiation"])
