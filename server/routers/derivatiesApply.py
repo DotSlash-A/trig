@@ -63,341 +63,197 @@ except ImportError:
         )
 
 
-# --- Helper Functions (Updated sympy_to_str, Existing safe_parse_expr, get_relevant_expr) ---
-
-
+# router = APIRouter(prefix="/applyderivatives", tags=["ApplyDifferentiation"])
 def safe_parse_expr(expr_str: str, local_dict: Optional[Dict[str, Any]] = None):
     """Safely parse a string into a sympy expression."""
-    # Consider adding 'pi', 'E', common functions to local_dict by default if needed
-    default_dict = {
-        "pi": sympy.pi,
-        "E": sympy.E,
-        "sqrt": sympy.sqrt,
-        "sin": sympy.sin,
-        "cos": sympy.cos,
-        "tan": sympy.tan,
-        "log": sympy.log,
-        "ln": sympy.log,
-        "exp": sympy.exp,
-        "Abs": sympy.Abs,
-    }
-    if local_dict:
-        default_dict.update(local_dict)
-
     try:
+        # Adding implicit multiplication and function application transformations
         transformations = standard_transformations + (
             implicit_multiplication_application,
         )
-        # Using sympify might be slightly safer for basic expressions but parse_expr allows transformations
-        # parsed_expr = sympify(expr_str, locals=default_dict)
         parsed_expr = parse_expr(
-            expr_str, local_dict=default_dict, transformations=transformations
+            expr_str, local_dict=local_dict, transformations=transformations
         )
         return parsed_expr
     except (SyntaxError, TypeError, Exception) as e:
-        # Add more specific error types if possible
         raise HTTPException(
             status_code=400, detail=f"Error parsing expression '{expr_str}': {e}"
         )
 
 
-# def sympy_to_str(sympy_obj, precision=4):
-#     """Convert sympy objects to string for JSON compatibility, with rounding."""
-#     if sympy_obj is None:
-#         return None
-#     # Handle sets returned by solveset/singularities
-#     if isinstance(sympy_obj, (FiniteSet, SympyUnion, ConditionSet, EmptySet)):
-#         # Convert sets to lists of strings
-#         if sympy_obj == EmptySet:
-#             return []
-#         elif isinstance(sympy_obj, FiniteSet):
-#             return sorted(
-#                 [sympy_to_str(item, precision) for item in sympy_obj.args],
-#                 key=lambda x: float(x) if x.replace(".", "", 1).isdigit() else 0,
-#             )  # Basic sort
-#         else:  # Union, ConditionSet might be complex - return string representation
-#             return str(sympy_obj)  # Or try to iterate args if possible
-#     # Handle lists/tuples recursively
-#     if isinstance(sympy_obj, (list, tuple)):
-#         return [sympy_to_str(item, precision) for item in sympy_obj]
-#     if isinstance(sympy_obj, dict):
-#         return {str(k): sympy_to_str(v, precision) for k, v in sympy_obj.items()}
-
-#     # Handle specific Sympy constants
-#     if sympy_obj == oo:
-#         return "oo"
-#     if sympy_obj == -oo:
-#         return "-oo"
-#     if sympy_obj == zoo:
-#         return "undefined (complex infinity)"  # More descriptive
-#     if sympy_obj == nan:
-#         return "NaN"
-#     if sympy_obj == pi:
-#         return "pi"
-#     if sympy_obj == sympy.E:
-#         return "E"
-#     if sympy_obj == sympy.I:
-#         return "I"
-
-#     # Attempt to convert to float for rounding if it's a number type
-#     if isinstance(sympy_obj, (sympy.Float, sympy.Integer, sympy.Rational)):
-#         try:
-#             num_val = float(sympy_obj)
-#             # Format to specified precision, removing trailing zeros and decimal if whole
-#             formatted = f"{num_val:.{precision}f}".rstrip("0").rstrip(".")
-#             return formatted if formatted != "-0" else "0"  # Avoid '-0' representation
-#         except (TypeError, ValueError):
-#             # If conversion to float fails, return symbolic string
-#             return str(sympy_obj)
-#     # Handle NumberSymbol like pi, E (already covered above, but as fallback)
-#     if isinstance(sympy_obj, sympy.NumberSymbol):
-#         return str(sympy_obj)
-
-#     # Handle symbols and expressions
-#     if isinstance(sympy_obj, (sympy.Symbol, sympy.Expr)):
-#         # Check if it represents a number that can be evaluated
-#         try:
-#             eval_val = N(
-#                 sympy_obj, precision + 1
-#             )  # Evaluate with slightly higher precision
-#             if isinstance(eval_val, (sympy.Float, float)):
-#                 num_val = float(eval_val)
-#                 formatted = f"{num_val:.{precision}f}".rstrip("0").rstrip(".")
-#                 return formatted if formatted != "-0" else "0"
-#             else:
-#                 # If evalf doesn't result in a float, return string
-#                 return str(sympy_obj)
-#         except (TypeError, ValueError, Exception):
-#             # If evaluation fails, return the symbolic string representation
-#             return str(sympy_obj)
-
-#     # Default fallback for any other types
-#     return str(sympy_obj)
-
-
-# *** TEMPORARY SIMPLIFIED VERSION FOR DEBUGGING ***
-def sympy_to_str(sympy_obj, precision=4):  # Keep signature for compatibility
+def sympy_to_str(sympy_obj):
+    """Convert sympy objects to string for JSON compatibility."""
     if sympy_obj is None:
         return None
-    # Handle specific Sympy constants directly
+    if isinstance(sympy_obj, (list, tuple)):
+        return [sympy_to_str(item) for item in sympy_obj]
+    if isinstance(sympy_obj, dict):
+        return {str(k): sympy_to_str(v) for k, v in sympy_obj.items()}
+    if isinstance(
+        sympy_obj,
+        (sympy.Float, sympy.Integer, sympy.Rational, sympy.NumberSymbol, sympy.Symbol),
+    ):
+        # Attempt numerical evaluation if possible, otherwise string
+        try:
+            # Use N for approx, but keep precision. Or just str() for exact symbolic
+            # return str(N(sympy_obj)) # For numeric approx
+            num_val = float(sympy_obj)
+            return f"{num_val:.2f}"
+            # return str(sympy_obj)  # For symbolic representation
+
+        except Exception:
+            return str(sympy_obj)
     if sympy_obj == oo:
         return "oo"
     if sympy_obj == -oo:
         return "-oo"
-    if sympy_obj == zoo:
-        return "undefined (complex infinity)"
-    if sympy_obj == nan:
+    if sympy_obj == sympy.zoo:  # Complex infinity
+        return "complex_infinity"
+    if sympy_obj == sympy.nan:
         return "NaN"
-    if sympy_obj == pi:
-        return "pi"
-    if sympy_obj == sympy.E:
-        return "E"
     if sympy_obj == sympy.I:
-        return "I"
+        return "I"  # Imaginary unit
+    # Handle undefined cases specifically if needed
+    if isinstance(
+        sympy_obj,
+        (sympy.zooKind, type(sympy.zoo)),
+    ):
+        return "undefined"
 
-    # Handle sets crudely for now
-    if isinstance(sympy_obj, (FiniteSet, SympyUnion, ConditionSet, EmptySet)):
-        if sympy_obj == EmptySet:
-            return []
-        # Basic representation for other sets
-        return f"Set: {str(sympy_obj)}"  # Or try iterating args if simple FiniteSet
-
-    # Basic list/tuple/dict handling (recursive call)
-    if isinstance(sympy_obj, (list, tuple)):
-        return [sympy_to_str(item) for item in sympy_obj]  # Recursive call
-    if isinstance(sympy_obj, dict):
-        return {str(k): sympy_to_str(v) for k, v in sympy_obj.items()}  # Recursive call
-
-    # Fallback to default string conversion for everything else
-    try:
-        return str(sympy_obj)
-    except Exception as e:
-        return f"<Error converting object: {e}>"
+    return str(sympy_obj)  # D
 
 
 def get_relevant_expr(
     func_def: FunctionDefinition, point_val: float, target: str = "point"
 ):
-    """Get the correct expression piece for LHL, RHL, or point based on condition (Improved Heuristics)"""
+    """Get the correct expression piece for LHL, RHL, or point based on condition"""
     x = symbols(func_def.variable)
-    local_dict = {func_def.variable: x}
-
     if func_def.type == "single":
-        # Make sure expression is not None
-        if func_def.expression is None:
-            raise HTTPException(
-                status_code=400,
-                detail="Single function definition requires an 'expression'.",
-            )
-        return safe_parse_expr(func_def.expression, local_dict)
-
-    if not func_def.pieces:
-        raise HTTPException(
-            status_code=400, detail="Piecewise function definition requires 'pieces'."
-        )
+        return safe_parse_expr(func_def.expression, {func_def.variable: x})
 
     expr_for_target = None
+    condition_met = False
 
-    # --- Try using Sympy's Piecewise ---
-    # This is generally more robust if conditions are well-formed sympy conditions
-    pw_args = []
-    symbols_in_conditions = {func_def.variable: x}
-    has_complex_conditions = False
-    for piece in func_def.pieces:
-        try:
-            expr = safe_parse_expr(piece.expression, local_dict)
-            # Attempt to parse condition into a Sympy relational
-            cond = sympify(piece.condition, locals=symbols_in_conditions)
-            if not isinstance(cond, (BooleanFunction, Relational)):
-
-                # If sympify doesn't return a boolean/relational, parsing might be wrong
-                # Or it's a complex condition string like "0 < x < 1" which sympify might handle differently
-                # Try parsing simple range conditions
-                parts = piece.condition.replace(" ", "").split("<")
-                if len(parts) == 3 and parts[1] == func_def.variable:  # e.g., a < x < b
-                    cond = And(
-                        sympify(parts[0], locals=symbols_in_conditions) < x,
-                        x < sympify(parts[2], locals=symbols_in_conditions),
-                    )
-                elif len(parts) == 2:  # e.g. x < a or a < x
-                    if parts[0] == func_def.variable:
-                        cond = x < sympify(parts[1], locals=symbols_in_conditions)
-                    elif parts[1] == func_def.variable:
-                        cond = sympify(parts[0], locals=symbols_in_conditions) < x
-                else:  # Fallback for other conditions (>=, <= etc.) - relies on sympify working
-                    pass  # Use the result from sympify
-
-            pw_args.append((expr, cond))
-        except (SyntaxError, TypeError, Exception) as e:
-            # print(f"Warning: Could not parse piece condition '{piece.condition}' reliably: {e}")
-            has_complex_conditions = (
-                True  # Fallback to string heuristics if parsing fails
-            )
-            break  # Stop trying Piecewise if one piece fails
-
-    # --- Fallback Heuristics (If Piecewise fails or is complex) ---
-    # This part remains less reliable than a perfect Piecewise definition
-    if has_complex_conditions or not pw_args:
-        # print("Using fallback heuristics for piece selection")
-        # Find the most likely candidate based on target
-        candidate_expr = None
-        match_level = 0  # 0: none, 1: inequality only, 2: inequality+equality
-
+    if func_def.pieces:
         for piece in func_def.pieces:
-            condition_str = piece.condition.replace(" ", "")
-            expr = safe_parse_expr(piece.expression, local_dict)
-
-            is_lhl_candidate = "<" in condition_str and str(point_val) in condition_str
-            is_rhl_candidate = ">" in condition_str and str(point_val) in condition_str
-            includes_equal = (
-                "<=" in condition_str or ">=" in condition_str or "==" in condition_str
-            )
-
-            if target == "lhl":
-                if is_lhl_candidate:
-                    if (
-                        includes_equal and match_level < 2
-                    ):  # Prioritize '<=' over '<' if needed? Usually '<' is correct limit def.
-                        candidate_expr = expr
-                        match_level = 1
-                    elif (
-                        not includes_equal
-                    ):  # Prefer strict inequality for limit direction
-                        candidate_expr = expr
-                        match_level = 1  # Keep '<' if found
-            elif target == "rhl":
-                if is_rhl_candidate:
-                    if includes_equal and match_level < 2:
-                        candidate_expr = expr
-                        match_level = 1
-                    elif not includes_equal:
-                        candidate_expr = expr
-                        match_level = 1
-            elif target == "point":
-                if includes_equal and str(point_val) in condition_str:
-                    # Check if the point *exactly* satisfies the equality part implicitly
-                    try_point = False
-                    if "<=" in condition_str and point_val <= float(
-                        condition_str.split("<=")[-1]
-                    ):
-                        try_point = True
-                    elif ">=" in condition_str and point_val >= float(
-                        condition_str.split(">=")[-1]
-                    ):
-                        try_point = True
-                    elif "==" in condition_str and point_val == float(
-                        condition_str.split("==")[-1]
-                    ):
-                        try_point = True
-
-                    if try_point:
-                        candidate_expr = expr
-                        match_level = 2  # Strongest match
-                        break  # Found equality match
-
-        expr_for_target = candidate_expr
-
-    else:
-        # --- Use Piecewise to select ---
-        # print("Using Piecewise function for selection")
-        try:
-            # Create the Piecewise function (add a default value? maybe zoo?)
-            pw_func = Piecewise(
-                *pw_args, (zoo, True)
-            )  # Default to undefined if no condition matches
-
-            if target == "point":
-                expr_for_target = pw_func.subs(x, point_val)
-                # If substitution results in zoo, it means no defined piece at that exact point
-                if expr_for_target == zoo:
-                    # Revert to heuristic for point if Piecewise doesn't define it explicitly
-                    # print("Piecewise undefined at point, reverting to heuristic for 'point'")
-                    return get_relevant_expr(
-                        func_def, point_val, target="point"
-                    )  # Recursive call with heuristic forced
-
-                # Need the original expression *formula*, not the value, for limits/derivatives
-                # Find which piece was active
-                for expr, cond in pw_args:
-                    if simplify(cond.subs(x, point_val)) == True:
-                        expr_for_target = expr
-                        break
-            else:  # LHL / RHL - need the formula associated with the side
-                # For limits, sympy's limit function handles Piecewise directly
-                expr_for_target = (
-                    pw_func  # Return the whole Piecewise for limit calculation
+            try:
+                # Attempt to evaluate the condition symbolically/numerically
+                # This is complex and may fail for intricate conditions
+                condition_expr = safe_parse_expr(
+                    piece.condition, {func_def.variable: x}
                 )
 
-        except Exception as e:
-            # print(f"Error creating/using Piecewise function: {e}")
-            # If Piecewise creation/use fails, fallback to heuristic
-            return get_relevant_expr(
-                func_def, point_val, target=target
-            )  # Recursive call with heuristic
+                # Check condition based on target (LHL, RHL, Point)
+                if target == "lhl":  # x < point_val
+                    # Heuristic: if '<' or '<=' is in condition string and involves point
+                    if "<" in piece.condition and str(point_val) in piece.condition:
+                        expr_for_target = safe_parse_expr(
+                            piece.expression, {func_def.variable: x}
+                        )
+                        break
+                elif target == "rhl":  # x > point_val
+                    if ">" in piece.condition and str(point_val) in piece.condition:
+                        expr_for_target = safe_parse_expr(
+                            piece.expression, {func_def.variable: x}
+                        )
+                        break
+                elif target == "point":  # x == point_val
+                    # Check for <=, >=, or an explicit == condition (less common)
+                    if (
+                        "<=" in piece.condition
+                        or ">=" in piece.condition
+                        or "==" in piece.condition
+                    ) and str(point_val) in piece.condition:
+                        # More robust check: substitute and see if True
+                        try:
+                            if condition_expr.subs(x, point_val) == True:
+                                expr_for_target = safe_parse_expr(
+                                    piece.expression, {func_def.variable: x}
+                                )
+                                condition_met = True
+                                break  # Found the piece for the point value
+                        except (TypeError, AttributeError):
+                            # Fallback to string check if symbolic fails easily
+                            if str(point_val) in piece.condition and (
+                                "<=" in piece.condition or ">=" in piece.condition
+                            ):
+                                expr_for_target = safe_parse_expr(
+                                    piece.expression, {func_def.variable: x}
+                                )
+                                condition_met = True
+                                break
+
+            except Exception as e:
+                # print(f"Warning: Could not parse or evaluate condition '{piece.condition}': {e}")
+                # Fallback heuristic based on string matching (less reliable)
+                if target == "lhl" and "<" in piece.condition:
+                    expr_for_target = safe_parse_expr(
+                        piece.expression, {func_def.variable: x}
+                    )
+                elif target == "rhl" and ">" in piece.condition:
+                    expr_for_target = safe_parse_expr(
+                        piece.expression, {func_def.variable: x}
+                    )
+                elif target == "point" and (
+                    "<=" in piece.condition or ">=" in piece.condition
+                ):
+                    expr_for_target = safe_parse_expr(
+                        piece.expression, {func_def.variable: x}
+                    )
+                    condition_met = True  # Assume this covers the point
+
+        # If no specific piece matched for the point, try LHL/RHL pieces again if they contain '='
+        if target == "point" and not condition_met:
+            for piece in func_def.pieces:
+                if ("<=" in piece.condition or ">=" in piece.condition) and str(
+                    point_val
+                ) in piece.condition:
+                    expr_for_target = safe_parse_expr(
+                        piece.expression, {func_def.variable: x}
+                    )
+                    break
 
     if expr_for_target is None:
-        # If still no expression found after heuristics
-        # Provide a more informative error or a very basic default
-        if func_def.pieces:  # Try first/last as absolute fallback
+        # Fallback or error if no suitable expression found
+        # This logic needs refinement for robustness
+        # print(f"Warning: Could not determine expression for {target} at {point_val}")
+        # As a last resort for limits, try using the piece definition nearest the point
+        if func_def.pieces:
             if target == "lhl":
-                expr_for_target = safe_parse_expr(
-                    func_def.pieces[0].expression, local_dict
-                )
-            elif target == "rhl":
-                expr_for_target = safe_parse_expr(
-                    func_def.pieces[-1].expression, local_dict
-                )
-            else:
-                expr_for_target = safe_parse_expr(
-                    func_def.pieces[0].expression, local_dict
-                )  # Guess first piece for point?
-        if expr_for_target is None:  # If still nothing
-            raise HTTPException(
-                status_code=400,
-                detail=f"Could not determine relevant function piece for {target} at {point_val}",
-            )
+                return safe_parse_expr(
+                    func_def.pieces[0].expression, {func_def.variable: x}
+                )  # Simplistic guess
+            if target == "rhl":
+                return safe_parse_expr(
+                    func_def.pieces[-1].expression, {func_def.variable: x}
+                )  # Simplistic guess
+            if (
+                target == "point"
+            ):  # Try the piece definition that likely includes the boundary
+                for p in func_def.pieces:
+                    if ">=" in p.condition or "<=" in p.condition:
+                        return safe_parse_expr(p.expression, {func_def.variable: x})
+        raise HTTPException(
+            status_code=400,
+            detail=f"Could not determine relevant function piece for {target} at {point_val}",
+        )
 
     return expr_for_target
+
+
+router_continuity = APIRouter(prefix="/calculus/continuity", tags=["Continuity"])
+router_differentiability = APIRouter(
+    prefix="/calculus/differentiability", tags=["Differentiability"]
+)
+router_rate_measure = APIRouter(prefix="/calculus/rate-measure", tags=["Rate Measure"])
+router_approximations = APIRouter(
+    prefix="/calculus/approximations", tags=["Approximations & Errors"]
+)
+router_tangents_normals = APIRouter(
+    prefix="/calculus/tangents-normals", tags=["Tangents & Normals"]
+)
+router_monotonicity = APIRouter(prefix="/calculus/monotonicity", tags=["Monotonicity"])
+
 
 
 # --- Routers ---
@@ -1958,7 +1814,7 @@ async def check_monotonicity_on_interval(request: MonotonicityCheckIntervalReque
 
 
 # --- Register Routers ---
-app = FastAPI(
-    title="Calculus Solver API",
-    description="API endpoints for solving common Class 12 Calculus problems.",
-)
+# app = FastAPI(
+#     title="Calculus Solver API",
+#     description="API endpoints for solving common Class 12 Calculus problems.",
+# )
