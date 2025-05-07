@@ -18,6 +18,9 @@ from routers.derivatiesApply import router_rate_measure
 from routers.derivatiesApply import router_approximations
 from routers.derivatiesApply import router_tangents_normals
 from routers.derivatiesApply import router_monotonicity
+from routers import real_numbers_router
+from routers import linear_equations_router
+from routers import polynomial_quadratic_router
 
 app = FastAPI()
 
@@ -39,6 +42,10 @@ app.include_router(router_rate_measure)
 app.include_router(router_approximations)
 app.include_router(router_tangents_normals)
 app.include_router(router_monotonicity)
+
+app.include_router(real_numbers_router.router)
+app.include_router(linear_equations_router.router)
+app.include_router(polynomial_quadratic_router.router)
 
 
 # Pydantic model for data validation
