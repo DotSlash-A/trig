@@ -21,6 +21,9 @@ from routers.derivatiesApply import router_monotonicity
 from routers import real_numbers_router
 from routers import linear_equations_router
 from routers import polynomial_quadratic_router
+from routers import geometry_router
+from routers import statistics_router
+from routers import probability_router
 
 app = FastAPI()
 
@@ -46,6 +49,9 @@ app.include_router(router_monotonicity)
 app.include_router(real_numbers_router.router)
 app.include_router(linear_equations_router.router)
 app.include_router(polynomial_quadratic_router.router)
+app.include_router(geometry_router.router)
+app.include_router(statistics_router.router)
+app.include_router(probability_router.router)
 
 
 # Pydantic model for data validation
