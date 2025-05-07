@@ -6,6 +6,7 @@ from typing import List, Union
 import cmath  # For parsing complex number strings
 from sympy import symbols  # For symbolic variable creation
 
+
 router = APIRouter(
     prefix="/polynomials-quadratic", tags=["Polynomials and Quadratic Equations"]
 )
@@ -126,15 +127,20 @@ async def synthetic_divide_poly(req: models.SyntheticDivisionRequest = Body(...)
 async def solve_quad_eq(coeffs_in: models.QuadraticEquationCoeffs = Body(...)):
     """Solves a quadratic equation ax^2 + bx + c = 0."""
     a, b, c = coeffs_in.a, coeffs_in.b, coeffs_in.c
-    poly_coeffs_for_str = [a, b, c]
-    eq_str = f"({ps.polynomial_to_string(poly_coeffs_for_str)}) = 0"
+    # For string representation, use original a,b,c
+    poly_coeffs_for_str = [coeffs_in.a, coeffs_in.b, coeffs_in.c]
+    eq_str = f"({ps.polynomial_to_string(poly_coeffs_for_str)}) = 0"  # Use potentially complex-aware formatter
 
-    solution = ps.solve_quadratic_equation(a, b, c)
+    solution_data = ps.solve_quadratic_equation(a, b, c)  # This returns a dict
 
+    # Populate the response model correctly
     return models.QuadraticSolutionResponse(
         equation_string=eq_str,
-        coefficients=coeffs_in,
-        **solution,  # Unpack discriminant, nature_of_roots, roots, formula_used
+        coefficients=coeffs_in,  # Pass the Pydantic model instance directly
+        discriminant=solution_data["discriminant"],
+        nature_of_roots=solution_data["nature_of_roots"],
+        roots=solution_data["roots"],
+        formula_used=solution_data["formula_used"],
     )
 
 
@@ -231,61 +237,101 @@ async def find_poly_roots(poly_input: models.PolynomialInput = Body(...)):
 async def form_poly_from_roots(req: models.FormPolynomialFromRootsRequest = Body(...)):
     """
     Forms a polynomial P(x) = k(x-r1)(x-r2)...(x-rn) given its roots and an optional leading coefficient k.
-    Handles real and complex roots.
+    Handles real and complex roots using in-house multiplication.
     """
     parsed_roots = []
     for r_str in req.roots:
-        parsed_roots.append(_parse_value(r_str))  # Handles complex numbers like "1+2j"
+        parsed_roots.append(_parse_value(r_str))
 
-    # Start with P(x) = k
-    # For each root r, multiply by (x - r)
-    # P(x) = k * (x - r1) * (x - r2) * ...
-    # Current polynomial coeffs, start with [k] (representing constant k)
-    current_coeffs_sympy = [req.leading_coefficient]
-
-    x_sym = symbols(req.variable)
-    current_poly_sympy = ps.Poly(
-        current_coeffs_sympy,
-        x_sym,
-        domain="RR" if all(isinstance(r, float) for r in parsed_roots) else "CC",
-    )
+    # Start with P(x) = k (leading coefficient)
+    # This is a polynomial of degree 0, represented by [k]
+    current_coeffs: List[Union[float, complex]] = [req.leading_coefficient]
 
     for root in parsed_roots:
-        # (x - root) has coeffs [1, -root]
-        # Multiply current_poly by (x - root)
-        # Using sympy.expand for robust polynomial multiplication here as manual can be complex with complex numbers
-        factor_poly = ps.Poly(
-            [1, -root], x_sym, domain="CC"
-        )  # Ensure complex domain for multiplication
-        current_poly_sympy = ps.expand(current_poly_sympy * factor_poly)
-        current_poly_sympy = ps.Poly(
-            current_poly_sympy, x_sym, domain="CC"
-        )  # Re-cast to Poly
+        # Factor (x - root) has coefficients [1, -root]
+        # Ensure types are consistent for multiplication
+        factor_coeffs: List[Union[float, complex]] = [1.0, -root]
+        current_coeffs = ps.multiply_polynomials(current_coeffs, factor_coeffs)
 
-    final_coeffs_sympy = current_poly_sympy.all_coeffs()
+    # Convert coefficients to string if complex for consistent Pydantic model
+    final_coeffs_for_model: List[Union[float, str]] = []
+    for coeff_val in current_coeffs:
+        if isinstance(coeff_val, complex):
+            final_coeffs_for_model.append(str(coeff_val))
+        else:
+            final_coeffs_for_model.append(float(coeff_val))  # Ensure float
 
-    # Convert Sympy numbers (potentially complex) to Python floats or complex string representations
-    final_coeffs_py: List[Union[float, str]] = []
-    for coeff_val in final_coeffs_sympy:
-        if coeff_val.is_real:
-            # Check if it's an integer
-            if abs(coeff_val - round(coeff_val)) < 1e-9:
-                final_coeffs_py.append(float(round(coeff_val)))
-            else:
-                final_coeffs_py.append(float(coeff_val))
-        else:  # Complex coefficient
-            final_coeffs_py.append(
-                str(coeff_val)
-            )  # Store complex as string "re+im*I" (sympy format)
-
-    # Re-construct string from these possibly complex coeffs
-    # The ps.polynomial_to_string might need adjustment for complex coefficients
-    # For now, let sympy generate the string for the final polynomial
-    final_poly_str = str(current_poly_sympy.as_expr())
+    final_poly_str = ps.polynomial_to_string(current_coeffs, req.variable)
 
     return models.FormPolynomialFromRootsResponse(
-        roots_provided=[str(r) for r in parsed_roots],
-        polynomial_coeffs=final_coeffs_py,
+        roots_provided=[str(r) for r in parsed_roots],  # Store parsed roots as strings
+        polynomial_coeffs=final_coeffs_for_model,
         polynomial_string=final_poly_str,
         leading_coefficient_used=req.leading_coefficient,
     )
+
+
+# @router.post(
+#     "/form-polynomial-from-roots", response_model=models.FormPolynomialFromRootsResponse
+# )
+# async def form_poly_from_roots(req: models.FormPolynomialFromRootsRequest = Body(...)):
+#     """
+#     Forms a polynomial P(x) = k(x-r1)(x-r2)...(x-rn) given its roots and an optional leading coefficient k.
+#     Handles real and complex roots.
+#     """
+#     parsed_roots = []
+#     for r_str in req.roots:
+#         parsed_roots.append(_parse_value(r_str))  # Handles complex numbers like "1+2j"
+
+#     # Start with P(x) = k
+#     # For each root r, multiply by (x - r)
+#     # P(x) = k * (x - r1) * (x - r2) * ...
+#     # Current polynomial coeffs, start with [k] (representing constant k)
+#     current_coeffs_sympy = [req.leading_coefficient]
+
+#     x_sym = symbols(req.variable)
+#     current_poly_sympy = ps.Poly(
+#         current_coeffs_sympy,
+#         x_sym,
+#         domain="RR" if all(isinstance(r, float) for r in parsed_roots) else "CC",
+#     )
+
+#     for root in parsed_roots:
+#         # (x - root) has coeffs [1, -root]
+#         # Multiply current_poly by (x - root)
+#         # Using sympy.expand for robust polynomial multiplication here as manual can be complex with complex numbers
+#         factor_poly = ps.Poly(
+#             [1, -root], x_sym, domain="CC"
+#         )  # Ensure complex domain for multiplication
+#         current_poly_sympy = ps.expand(current_poly_sympy * factor_poly)
+#         current_poly_sympy = ps.Poly(
+#             current_poly_sympy, x_sym, domain="CC"
+#         )  # Re-cast to Poly
+
+#     final_coeffs_sympy = current_poly_sympy.all_coeffs()
+
+#     # Convert Sympy numbers (potentially complex) to Python floats or complex string representations
+#     final_coeffs_py: List[Union[float, str]] = []
+#     for coeff_val in final_coeffs_sympy:
+#         if coeff_val.is_real:
+#             # Check if it's an integer
+#             if abs(coeff_val - round(coeff_val)) < 1e-9:
+#                 final_coeffs_py.append(float(round(coeff_val)))
+#             else:
+#                 final_coeffs_py.append(float(coeff_val))
+#         else:  # Complex coefficient
+#             final_coeffs_py.append(
+#                 str(coeff_val)
+#             )  # Store complex as string "re+im*I" (sympy format)
+
+#     # Re-construct string from these possibly complex coeffs
+#     # The ps.polynomial_to_string might need adjustment for complex coefficients
+#     # For now, let sympy generate the string for the final polynomial
+#     final_poly_str = str(current_poly_sympy.as_expr())
+
+#     return models.FormPolynomialFromRootsResponse(
+#         roots_provided=[str(r) for r in parsed_roots],
+#         polynomial_coeffs=final_coeffs_py,
+#         polynomial_string=final_poly_str,
+#         leading_coefficient_used=req.leading_coefficient,
+#     )
