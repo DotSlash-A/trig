@@ -24,6 +24,7 @@ from routers import polynomial_quadratic_router
 from routers import geometry_router
 from routers import statistics_router
 from routers import probability_router
+from routers import three_d_router
 
 app = FastAPI()
 
@@ -52,6 +53,9 @@ app.include_router(polynomial_quadratic_router.router)
 app.include_router(geometry_router.router)
 app.include_router(statistics_router.router)
 app.include_router(probability_router.router)
+
+
+app.include_router(three_d_router.router)
 
 
 # Pydantic model for data validation
