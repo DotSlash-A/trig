@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional
 from routers import transformations
@@ -56,6 +57,14 @@ app.include_router(probability_router.router)
 
 
 app.include_router(three_d_router.router)
+
+app.add_middleware(
+  CORSMiddleware,
+  allow_origins = ["*"],
+  allow_methods = ["*"],
+  allow_headers = ["*"],
+  allow_credentials = "*",
+)
 
 
 # Pydantic model for data validation
