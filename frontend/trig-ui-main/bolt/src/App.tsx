@@ -10,6 +10,7 @@ import Integration from './pages/Integration';
 import Slope from './pages/Slope';
 import ComplexNumbers from './pages/ComplexNumbers';
 import Circle from './pages/Circle';
+import Prog from './pages/Prog'; // Ensure the file exists at ./pages/Prog.tsx
 
 function App() {
   return (
@@ -26,6 +27,7 @@ function App() {
               <Route path="/slope" element={<Slope />} />
               <Route path="/complex" element={<ComplexNumbers />} />
               <Route path="/circle" element={<Circle />} />
+              <Route path='/prog' element={<Prog />} />
             </Routes>
           </main>
         </div>

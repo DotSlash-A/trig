@@ -228,4 +228,67 @@ export const calculateCircleFrom3PointsDet = (data: Circle3PointsRequest): Promi
     method: 'POST',
     body: JSON.stringify(data),
   });
+
+  
+};
+
+
+
+
+// Arithmetic Progression
+export interface APRequest {
+  a: number; // First term
+  d: number; // Common difference
+  n: number; // Number of terms
+}
+
+export interface APResponse {
+  nth_term: number;
+  sum_n_terms: number;
+}
+
+export const calculateAP = (data: APRequest): Promise<APResponse> => {
+  return fetchFromAPI('/progressions/arithmetic_progression', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+};
+
+// Nth Term from Last in AP
+export interface APLastTermRequest {
+  a: number; // First term
+  d: number; // Common difference
+  l: number; // Last term
+  n: number; // Nth term from end
+}
+
+export interface APLastTermResponse {
+  nth_term_from_last: number;
+}
+
+export const calculateAPNthTermFromLast = (data: APLastTermRequest): Promise<APLastTermResponse> => {
+  return fetchFromAPI('/progressions/nth_term_from_last', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+};
+
+// Middle Term(s) in AP
+export interface APMiddleTermRequest {
+  a: number; // First term
+  d: number; // Common difference
+  last_term: number; // Value of the last term
+}
+
+export interface APMiddleTermResponse {
+  number_of_terms: number;
+  middle_term_s: number[]; // Corresponds to middle_term(s) in Python, using _s for valid JS identifier
+  message?: string;
+}
+
+export const findAPMiddleTerms = (data: APMiddleTermRequest): Promise<APMiddleTermResponse> => {
+  return fetchFromAPI('/progressions/middle_term', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
 };

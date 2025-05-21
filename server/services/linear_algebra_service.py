@@ -207,6 +207,7 @@ def solve_by_substitution(
     a1: float, b1: float, c1: float,
     a2: float, b2: float, c2: float
 ) -> Dict[str, Any]:
+    
     """
     Solves by substitution method and provides step-by-step explanation.
     a1x + b1y = c1  (eq1)
